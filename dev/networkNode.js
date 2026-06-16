@@ -12,6 +12,12 @@ const { json } = require('body-parser');
 
 const nodeAddress = uuid().split('-').join('');
 
+// Safety net: a P2P node must survive an unreachable peer. Log stray rejections
+// instead of letting Node crash the process (handlers below also catch directly).
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection (ignored):', reason && reason.message ? reason.message : reason);
+});
+
 // Auth store (per node — not shared across the network), persisted to disk
 // and namespaced by port so concurrently-running nodes don't clobber each other.
 const dataDir = path.join(__dirname, 'data');
@@ -148,8 +154,8 @@ app.post('/transaction/broadcast', function(req, res){
             body: newTransaction,
             json: true
         };
-        requestPromises.push(rp(requestOptions));
-        
+        requestPromises.push(rp(requestOptions).catch(() => null));
+
     });
     Promise.all(requestPromises)
     .then(data => {
@@ -179,7 +185,7 @@ app.get('/mine', requireAuth, function(req, res){
             body: { newBlock: newBlock},
             json: true
         };
-        requestPromises.push(rp(requestOptions));
+        requestPromises.push(rp(requestOptions).catch(() => null));
     });
 
     Promise.all(requestPromises)
@@ -194,14 +200,14 @@ app.get('/mine', requireAuth, function(req, res){
             },
             json: true
         };
-        return rp(requestOptions);
+        return rp(requestOptions).catch(() => null);
     })
     .then(data => {
         res.json({
             note: "New block mined and broadcast successfully",
             block: newBlock
         });
-    });   
+    });
 });
 
 app.post('/receive-new-block', function(req, res){
@@ -236,7 +242,7 @@ app.post('/register-and-broadcast-node', function(req, res){
             body: { newNodeUrl: newNodeUrl },
             json: true
         };
-        regNodesPromises.push(rp(requestOptions));
+        regNodesPromises.push(rp(requestOptions).catch(() => null));
     });
     Promise.all(regNodesPromises)
     .then(data => {
@@ -259,6 +265,12 @@ app.post('/register-and-broadcast-node', function(req, res){
     })
     .then(data => {
         res.json({ note: 'New node registered with network successfully'});
+    })
+    .catch(err => {
+        // The joining node was unreachable mid-handshake — roll it back so we
+        // don't keep broadcasting to a node that never finished registering.
+        bitcoin.networkNodes = bitcoin.networkNodes.filter(url => url !== newNodeUrl);
+        res.status(502).json({ note: 'Failed to register new node — it was unreachable.' });
     });
 });
 
