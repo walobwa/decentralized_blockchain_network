@@ -69,7 +69,13 @@ function validatePassword(password) {
 function mergeUser(user) {
     if (user && user.username && user.salt && user.passwordHash &&
         !users.find(u => u.username === user.username)) {
-        users.push({ username: user.username, salt: user.salt, passwordHash: user.passwordHash });
+        users.push({
+            username: user.username,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            salt: user.salt,
+            passwordHash: user.passwordHash
+        });
         return true;
     }
     return false;
@@ -116,16 +122,24 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false}));
 
 app.post('/auth/register', function(req, res){
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ note: 'Username and password are required.' });
+    const { firstName, lastName, username, password } = req.body;
+    if (!firstName || !lastName || !username || !password) {
+        return res.status(400).json({ note: 'First name, last name, username/email, and password are required.' });
+    }
 
     const passwordError = validatePassword(password);
     if (passwordError) return res.status(400).json({ note: passwordError });
 
-    if (users.find(u => u.username === username)) return res.status(409).json({ note: 'Username already taken.' });
+    if (users.find(u => u.username === username)) return res.status(409).json({ note: 'Username/email already taken.' });
 
     const salt = uuid();
-    const newUser = { username: username, salt: salt, passwordHash: hashPassword(password, salt) };
+    const newUser = {
+        username: username,
+        firstName: firstName,
+        lastName: lastName,
+        salt: salt,
+        passwordHash: hashPassword(password, salt)
+    };
     users.push(newUser);
 
     const token = uuid().split('-').join('');

@@ -81,8 +81,16 @@
         <button id="tabLogin" class="active">Log In</button>
         <button id="tabRegister">Register</button>
       </div>
+      <div class="field reg-only" style="display:none">
+        <label>First Name</label>
+        <input id="authFirst" autocomplete="given-name" />
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Last Name</label>
+        <input id="authLast" autocomplete="family-name" />
+      </div>
       <div class="field">
-        <label>Username</label>
+        <label>Username / Email</label>
         <input id="authUser" autocomplete="username" />
       </div>
       <div class="field">
@@ -168,6 +176,7 @@
       document.getElementById('tabRegister').classList.toggle('active', m === 'register');
       document.getElementById('authSubmit').textContent = m === 'login' ? 'Log In' : 'Register';
       document.getElementById('pwHint').style.display = m === 'register' ? 'block' : 'none';
+      document.querySelectorAll('.reg-only').forEach(el => el.style.display = m === 'register' ? 'block' : 'none');
       authMsg.textContent = '';
     }
     document.getElementById('tabLogin').onclick = () => setAuthMode('login');
@@ -176,14 +185,20 @@
     async function submitAuth() {
       const username = document.getElementById('authUser').value.trim();
       const password = document.getElementById('authPass').value;
-      if (!username || !password) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter a username and password.'; return; }
+      if (!username || !password) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter a username/email and password.'; return; }
+      const body = { username, password };
       if (mode === 'register') {
+        const firstName = document.getElementById('authFirst').value.trim();
+        const lastName = document.getElementById('authLast').value.trim();
+        if (!firstName || !lastName) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter your first and last name.'; return; }
         const pwErr = passwordError(password);
         if (pwErr) { authMsg.className = 'auth-msg err'; authMsg.textContent = pwErr; return; }
+        body.firstName = firstName;
+        body.lastName = lastName;
       }
       authMsg.className = 'auth-msg'; authMsg.textContent = 'Please wait…';
       try {
-        const data = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify({ username, password }) });
+        const data = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify(body) });
         localStorage.setItem(TOKEN_KEY, data.token);
         localStorage.setItem(USER_KEY, data.username);
         showApp();
