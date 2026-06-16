@@ -264,17 +264,25 @@
         };
       },
 
-      create() {
-        view.innerHTML = `<h2>New Transaction</h2><div class="hint">Create a transaction and broadcast it to the network's pending pool. It will be included in the next mined block.</div>
+      async create() {
+        view.innerHTML = `<h2>New Transaction</h2><div class="hint">Send to a registered user only. The transaction joins the pending pool and is included in the next mined block.</div>
           <div class="card"><h3>Create transaction</h3>
             <div class="form">
               <input id="txAmount" type="number" min="0" step="any" placeholder="Amount" />
-              <input id="txSender" placeholder="Sender" />
-              <input id="txRecipient" placeholder="Recipient" />
+              <input id="txSender" placeholder="Sender" list="userList" />
+              <input id="txRecipient" placeholder="Recipient" list="userList" />
+              <datalist id="userList"></datalist>
             </div>
             <div class="action" style="margin-top:12px"><button id="txCreate">Create &amp; broadcast</button></div>
           </div>
           <div class="status"></div><div id="out"></div>`;
+        // Prefill sender with the signed-in user and offer registered users as options.
+        document.getElementById('txSender').value = localStorage.getItem(USER_KEY) || '';
+        try {
+          const { users } = await api('/users');
+          document.getElementById('userList').innerHTML = (users || []).map(u => `<option value="${u}"></option>`).join('');
+        } catch (e) { /* non-fatal: the form still works, the server validates */ }
+
         document.getElementById('txCreate').onclick = async () => {
           const amount = parseFloat(document.getElementById('txAmount').value);
           const sender = document.getElementById('txSender').value.trim();
@@ -286,7 +294,6 @@
             ok(data.note);
             view.querySelector('#out').innerHTML = data.transaction ? txCard(data.transaction, null) : '';
             document.getElementById('txAmount').value = '';
-            document.getElementById('txSender').value = '';
             document.getElementById('txRecipient').value = '';
           } catch (e) { fail(e); }
         };

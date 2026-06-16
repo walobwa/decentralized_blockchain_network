@@ -75,6 +75,30 @@ function requireAuth(req, res, next) {
 
 const bitcoin = new Blockchain();
 
+// Track consecutive broadcast failures per peer and prune a peer that has been
+// unreachable too many times in a row, so dead nodes don't linger forever.
+const peerFailures = new Map();
+const MAX_PEER_FAILURES = 3;
+
+function removePeer(nodeUrl) {
+    bitcoin.networkNodes = bitcoin.networkNodes.filter(url => url !== nodeUrl);
+    peerFailures.delete(nodeUrl);
+}
+
+function broadcastToPeer(nodeUrl, pathSuffix, body) {
+    return rp({ uri: nodeUrl + pathSuffix, method: 'POST', body: body, json: true })
+        .then(data => { peerFailures.delete(nodeUrl); return data; })
+        .catch(() => {
+            const fails = (peerFailures.get(nodeUrl) || 0) + 1;
+            peerFailures.set(nodeUrl, fails);
+            if (fails >= MAX_PEER_FAILURES) {
+                removePeer(nodeUrl);
+                console.log(`Pruned unreachable peer ${nodeUrl} after ${fails} failed broadcasts.`);
+            }
+            return null;
+        });
+}
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false}));
 
@@ -143,20 +167,26 @@ app.post('/transaction', function(req, res){
 });
 
 app.post('/transaction/broadcast', function(req, res){
-    const newTransaction = bitcoin.createNewTransaction(req.body.amount, req.body.sender, req.body.recipient);
+    const { amount, sender, recipient } = req.body;
+
+    // Coinbase (mining reward) is exempt; everything else must be between
+    // registered users so you can't transact with a random name.
+    const isCoinbase = sender === '00';
+    if (!isCoinbase) {
+        if (!users.find(u => u.username === sender)) {
+            return res.status(400).json({ note: `Sender "${sender}" is not a registered user.` });
+        }
+        if (!users.find(u => u.username === recipient)) {
+            return res.status(400).json({ note: `Recipient "${recipient}" is not a registered user.` });
+        }
+    }
+
+    const newTransaction = bitcoin.createNewTransaction(amount, sender, recipient);
     bitcoin.addTransactionToPendingTransactions(newTransaction);
 
-    const requestPromises = [];
-    bitcoin.networkNodes.forEach(networkNodeUrl => {
-        const requestOptions = {
-            uri: networkNodeUrl + '/transaction',
-            method: 'POST',
-            body: newTransaction,
-            json: true
-        };
-        requestPromises.push(rp(requestOptions).catch(() => null));
+    const requestPromises = bitcoin.networkNodes.map(networkNodeUrl =>
+        broadcastToPeer(networkNodeUrl, '/transaction', newTransaction));
 
-    });
     Promise.all(requestPromises)
     .then(data => {
         res.json({ note: 'Transaction created and broadcast successfully.', transaction: newTransaction });
@@ -177,16 +207,8 @@ app.get('/mine', requireAuth, function(req, res){
 
     const newBlock = bitcoin.createNewBlock(nonce, previousBlockHash, blockHash);
 
-    const requestPromises = [];
-    bitcoin.networkNodes.forEach(newNodeUrl => {
-        const requestOptions = {
-            uri: newNodeUrl + '/receive-new-block',
-            method: 'POST',
-            body: { newBlock: newBlock},
-            json: true
-        };
-        requestPromises.push(rp(requestOptions).catch(() => null));
-    });
+    const requestPromises = bitcoin.networkNodes.map(networkNodeUrl =>
+        broadcastToPeer(networkNodeUrl, '/receive-new-block', { newBlock: newBlock }));
 
     Promise.all(requestPromises)
     .then(data => {
@@ -280,6 +302,32 @@ app.post('/register-node', function(req, res){
     const notCurrentNode = bitcoin.currentNodeUrl !== newNodeUrl;
     if (nodeNotAlreadyPresent && notCurrentNode) bitcoin.networkNodes.push(newNodeUrl);
     res.json({ note: 'New node registered successfully.'});
+});
+
+// Remove a node from the network and tell every peer to do the same.
+app.post('/deregister-and-broadcast-node', function(req, res){
+    const nodeUrl = req.body.nodeUrl;
+    if (!nodeUrl) return res.status(400).json({ note: 'nodeUrl is required.' });
+
+    const peers = bitcoin.networkNodes.filter(url => url !== nodeUrl);
+    removePeer(nodeUrl);
+
+    const deregisterPromises = peers.map(peer =>
+        rp({ uri: peer + '/deregister-node', method: 'POST', body: { nodeUrl: nodeUrl }, json: true }).catch(() => null));
+
+    Promise.all(deregisterPromises)
+    .then(() => res.json({ note: `Node ${nodeUrl} deregistered from the network.` }));
+});
+
+// Internal: remove a single node locally (no re-broadcast).
+app.post('/deregister-node', function(req, res){
+    removePeer(req.body.nodeUrl);
+    res.json({ note: 'Node deregistered.' });
+});
+
+// List registered usernames (for the transaction recipient picker).
+app.get('/users', requireAuth, function(req, res){
+    res.json({ users: users.map(u => u.username) });
 });
 
 app.post('/register-nodes-bulk', function(req, res){
