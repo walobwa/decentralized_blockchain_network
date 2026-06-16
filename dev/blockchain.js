@@ -1,6 +1,6 @@
 const sha256 = require('sha256');
 const currentNodeUrl = process.argv[3];
-const uuid = require('uuid/v1');
+const { v1: uuid } = require('uuid');
 
 function Blockchain(){
     this.chain = [];
