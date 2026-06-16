@@ -435,6 +435,23 @@ app.get('/users', requireAuth, function(req, res){
     res.json({ users: users.map(u => u.username) });
 });
 
+// Live Bitcoin network data, proxied from the free mempool.space API so the
+// browser calls same-origin endpoints (avoids CORS) and needs no API key.
+const LIVE_API = 'https://mempool.space/api';
+const liveHeaders = { 'User-Agent': 'nexis-blockchain-explorer' };
+
+app.get('/live/blocks', requireAuth, function(req, res){
+    rp({ uri: LIVE_API + '/v1/blocks', json: true, headers: liveHeaders })
+        .then(blocks => res.json({ blocks: blocks }))
+        .catch(() => res.status(502).json({ note: 'Could not reach the live block data source.' }));
+});
+
+app.get('/live/transactions', requireAuth, function(req, res){
+    rp({ uri: LIVE_API + '/mempool/recent', json: true, headers: liveHeaders })
+        .then(transactions => res.json({ transactions: transactions }))
+        .catch(() => res.status(502).json({ note: 'Could not reach the live transaction data source.' }));
+});
+
 app.post('/register-nodes-bulk', function(req, res){
     const allNetworkNodes = req.body.allNetworkNodes;
     allNetworkNodes.forEach(networkNodeUrl => {
