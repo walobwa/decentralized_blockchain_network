@@ -6,17 +6,54 @@ const { v1: uuid } = require('uuid');
 const port = process.argv[2];
 const rp = require('request-promise');
 const path = require('path');
+const fs = require('fs');
 const sha256 = require('sha256');
 const { json } = require('body-parser');
 
 const nodeAddress = uuid().split('-').join('');
 
-// In-memory auth store (per node — not shared across the network).
-const users = [];
-const sessions = new Map();
+// Auth store (per node — not shared across the network), persisted to disk
+// and namespaced by port so concurrently-running nodes don't clobber each other.
+const dataDir = path.join(__dirname, 'data');
+const authFile = path.join(dataDir, `auth-${port}.json`);
+let users = [];
+let sessions = new Map();
+
+function loadAuth() {
+    try {
+        const data = JSON.parse(fs.readFileSync(authFile, 'utf8'));
+        users = data.users || [];
+        sessions = new Map(data.sessions || []);
+        console.log(`Loaded ${users.length} user(s) from ${authFile}`);
+    } catch (e) {
+        // No store yet (first run) — start empty.
+    }
+}
+
+function saveAuth() {
+    try {
+        fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(authFile, JSON.stringify({ users, sessions: [...sessions] }, null, 2));
+    } catch (e) {
+        console.error('Failed to persist auth store:', e.message);
+    }
+}
+
+loadAuth();
 
 function hashPassword(password, salt) {
     return sha256(password + salt);
+}
+
+// Add an already-hashed user record from a peer if we don't have it. Returns
+// true if it was newly added (idempotent by username).
+function mergeUser(user) {
+    if (user && user.username && user.salt && user.passwordHash &&
+        !users.find(u => u.username === user.username)) {
+        users.push({ username: user.username, salt: user.salt, passwordHash: user.passwordHash });
+        return true;
+    }
+    return false;
 }
 
 function requireAuth(req, res, next) {
@@ -41,11 +78,39 @@ app.post('/auth/register', function(req, res){
     if (users.find(u => u.username === username)) return res.status(409).json({ note: 'Username already taken.' });
 
     const salt = uuid();
-    users.push({ username: username, salt: salt, passwordHash: hashPassword(password, salt) });
+    const newUser = { username: username, salt: salt, passwordHash: hashPassword(password, salt) };
+    users.push(newUser);
 
     const token = uuid().split('-').join('');
     sessions.set(token, username);
-    res.json({ token: token, username: username });
+    saveAuth();
+
+    // Broadcast the new credential to every peer so it works network-wide.
+    const broadcast = bitcoin.networkNodes.map(nodeUrl => rp({
+        uri: nodeUrl + '/auth/receive-user',
+        method: 'POST',
+        body: { user: newUser },
+        json: true
+    }).catch(() => null));
+
+    Promise.all(broadcast).then(() => {
+        res.json({ token: token, username: username });
+    });
+});
+
+// Internal: receive a single credential broadcast from a peer (no re-broadcast).
+app.post('/auth/receive-user', function(req, res){
+    if (mergeUser(req.body.user)) saveAuth();
+    res.json({ note: 'User synced.' });
+});
+
+// Internal: bulk credential sync, sent to a node when it joins the network.
+app.post('/auth/sync-users', function(req, res){
+    const incoming = req.body.users || [];
+    let added = 0;
+    incoming.forEach(user => { if (mergeUser(user)) added++; });
+    if (added) saveAuth();
+    res.json({ note: `Synced ${added} user(s).` });
 });
 
 app.post('/auth/login', function(req, res){
@@ -57,6 +122,7 @@ app.post('/auth/login', function(req, res){
 
     const token = uuid().split('-').join('');
     sessions.set(token, username);
+    saveAuth();
     res.json({ token: token, username: username });
 });
 
@@ -163,11 +229,11 @@ app.post('/register-and-broadcast-node', function(req, res){
     if (bitcoin.networkNodes.indexOf(newNodeUrl) == -1) bitcoin.networkNodes.push(newNodeUrl);
 
     const regNodesPromises = [];
-    bitcoin.networkNodes.forEach(newNodeUrl => {
+    bitcoin.networkNodes.forEach(networkNodeUrl => {
         const requestOptions = {
-            uri: newNodeUrl + '/register-node',
+            uri: networkNodeUrl + '/register-node',
             method: 'POST',
-            body: { newNodeUrl: newNodeUrl},
+            body: { newNodeUrl: newNodeUrl },
             json: true
         };
         regNodesPromises.push(rp(requestOptions));
@@ -181,6 +247,15 @@ app.post('/register-and-broadcast-node', function(req, res){
             json: true
         };
         return rp(bulkRegisterOptions);
+    })
+    .then(data => {
+        const syncUsersOptions = {
+            uri: newNodeUrl + '/auth/sync-users',
+            method: 'POST',
+            body: { users: users },
+            json: true
+        };
+        return rp(syncUsersOptions);
     })
     .then(data => {
         res.json({ note: 'New node registered with network successfully'});

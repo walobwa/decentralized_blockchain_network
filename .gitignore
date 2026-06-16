@@ -1,0 +1,2 @@
+# Persisted per-node auth store (contains password hashes)
+dev/data/
