@@ -22,14 +22,17 @@ process.on('unhandledRejection', (reason) => {
 // and namespaced by port so concurrently-running nodes don't clobber each other.
 const dataDir = path.join(__dirname, 'data');
 const authFile = path.join(dataDir, `auth-${port}.json`);
+const SESSION_TIMEOUT_MS = Number(process.env.SESSION_TIMEOUT_MS) || 5 * 60 * 1000; // auto-logout after 5 minutes idle
 let users = [];
-let sessions = new Map();
+let sessions = new Map(); // token -> { username, lastActivity }
 
 function loadAuth() {
     try {
         const data = JSON.parse(fs.readFileSync(authFile, 'utf8'));
         users = data.users || [];
-        sessions = new Map(data.sessions || []);
+        // Normalise legacy sessions (plain username strings) to the activity-tracked shape.
+        sessions = new Map((data.sessions || []).map(([token, val]) =>
+            typeof val === 'string' ? [token, { username: val, lastActivity: Date.now() }] : [token, val]));
         console.log(`Loaded ${users.length} user(s) from ${authFile}`);
     } catch (e) {
         // No store yet (first run) — start empty.
@@ -87,8 +90,15 @@ function mergeUser(user) {
 function requireAuth(req, res, next) {
     const header = req.headers['authorization'] || '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-    if (token && sessions.has(token)) {
-        req.username = sessions.get(token);
+    const session = token ? sessions.get(token) : null;
+    if (session) {
+        if (Date.now() - session.lastActivity > SESSION_TIMEOUT_MS) {
+            sessions.delete(token);
+            saveAuth();
+            return res.status(401).json({ note: 'Logged out after 5 minutes of inactivity.', code: 'timeout' });
+        }
+        session.lastActivity = Date.now(); // sliding window: each request refreshes it
+        req.username = session.username;
         return next();
     }
     res.status(401).json({ note: 'Authentication required.' });
@@ -154,7 +164,7 @@ app.post('/auth/register', function(req, res){
     users.push(newUser);
 
     const token = uuid().split('-').join('');
-    sessions.set(token, username);
+    sessions.set(token, { username: username, lastActivity: Date.now() });
     saveAuth();
 
     // Broadcast the new credential to every peer so it works network-wide.
@@ -233,9 +243,17 @@ app.post('/auth/login', function(req, res){
     }
 
     const token = uuid().split('-').join('');
-    sessions.set(token, user.username);
+    sessions.set(token, { username: user.username, lastActivity: Date.now() });
     saveAuth();
     res.json({ token: token, username: user.username });
+});
+
+// Invalidate the current session server-side (manual logout or idle timeout).
+app.post('/auth/logout', function(req, res){
+    const header = req.headers['authorization'] || '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (token && sessions.has(token)) { sessions.delete(token); saveAuth(); }
+    res.json({ note: 'Logged out.' });
 });
 
 app.get('/blockchain', requireAuth, function(req, res) {

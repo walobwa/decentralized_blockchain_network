@@ -165,7 +165,11 @@
       if (t) headers['Authorization'] = 'Bearer ' + t;
       const res = await fetch(path, Object.assign({}, opts, { headers }));
       const data = await res.json().catch(() => ({}));
-      if (res.status === 401) { logout(); throw new Error('Session expired. Please log in again.'); }
+      if (res.status === 401) {
+        const msg = (data && data.note) || 'Session expired. Please log in again.';
+        logout(msg);
+        throw new Error(msg);
+      }
       if (!res.ok) throw new Error(data.note || ('Request failed (' + res.status + ')'));
       return data;
     }
@@ -240,13 +244,30 @@
     document.getElementById('authSubmit').onclick = submitAuth;
     document.getElementById('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
 
-    function logout() {
+    function logout(message) {
+      const t = token();
+      stopIdleTimer();
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
+      // Best-effort server-side invalidation (raw fetch so a 401 here can't recurse into logout).
+      if (t) fetch('/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + t } }).catch(() => {});
       document.getElementById('app').style.display = 'none';
       document.getElementById('auth').style.display = 'flex';
+      if (message) { authMsg.className = 'auth-msg err'; authMsg.textContent = message; }
     }
-    document.getElementById('logout').onclick = logout;
+    document.getElementById('logout').onclick = () => logout();
+
+    /* ---------- inactivity auto-logout (5 minutes) ---------- */
+    const IDLE_LIMIT_MS = 5 * 60 * 1000;
+    let idleTimer = null;
+    function stopIdleTimer() { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } }
+    function resetIdleTimer() {
+      if (!token()) return; // only while signed in
+      stopIdleTimer();
+      idleTimer = setTimeout(() => logout('You were logged out after 5 minutes of inactivity.'), IDLE_LIMIT_MS);
+    }
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(ev =>
+      document.addEventListener(ev, resetIdleTimer, { passive: true }));
 
     /* ---------- app shell ---------- */
     function showApp() {
@@ -254,6 +275,7 @@
       document.getElementById('app').style.display = 'grid';
       document.getElementById('who').textContent = 'Signed in as ' + (localStorage.getItem(USER_KEY) || '');
       selectView('blockchain');
+      resetIdleTimer();
     }
 
     /* ---------- persistent verify panel ---------- */
