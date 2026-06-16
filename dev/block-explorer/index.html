@@ -89,7 +89,15 @@
         <label>Last Name</label>
         <input id="authLast" autocomplete="family-name" />
       </div>
-      <div class="field">
+      <div class="field reg-only" style="display:none">
+        <label>Username</label>
+        <input id="authRegUser" autocomplete="username" placeholder="Your preferred username" />
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Email</label>
+        <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" />
+      </div>
+      <div class="field login-only">
         <label>Username / Email</label>
         <input id="authUser" autocomplete="username" />
       </div>
@@ -97,6 +105,10 @@
         <label>Password</label>
         <input id="authPass" type="password" autocomplete="current-password" />
         <div id="pwHint" class="pw-hint" style="display:none">At least 8 characters, including uppercase, lowercase, a number, and a special character.</div>
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Confirm Password</label>
+        <input id="authConfirm" type="password" autocomplete="new-password" />
       </div>
       <button class="submit" id="authSubmit">Log In</button>
       <div id="authMsg" class="auth-msg"></div>
@@ -177,33 +189,52 @@
       document.getElementById('authSubmit').textContent = m === 'login' ? 'Log In' : 'Register';
       document.getElementById('pwHint').style.display = m === 'register' ? 'block' : 'none';
       document.querySelectorAll('.reg-only').forEach(el => el.style.display = m === 'register' ? 'block' : 'none');
+      document.querySelectorAll('.login-only').forEach(el => el.style.display = m === 'login' ? 'block' : 'none');
       authMsg.textContent = '';
     }
     document.getElementById('tabLogin').onclick = () => setAuthMode('login');
     document.getElementById('tabRegister').onclick = () => setAuthMode('register');
 
+    function setAuthErr(msg) { authMsg.className = 'auth-msg err'; authMsg.textContent = msg; }
+
     async function submitAuth() {
-      const username = document.getElementById('authUser').value.trim();
       const password = document.getElementById('authPass').value;
-      if (!username || !password) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter a username/email and password.'; return; }
-      const body = { username, password };
+      let body;
       if (mode === 'register') {
         const firstName = document.getElementById('authFirst').value.trim();
         const lastName = document.getElementById('authLast').value.trim();
-        if (!firstName || !lastName) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter your first and last name.'; return; }
+        const username = document.getElementById('authRegUser').value.trim();
+        const email = document.getElementById('authEmail').value.trim();
+        const confirm = document.getElementById('authConfirm').value;
+        if (!firstName || !lastName || !username || !email || !password || !confirm) return setAuthErr('All fields are required.');
         const pwErr = passwordError(password);
-        if (pwErr) { authMsg.className = 'auth-msg err'; authMsg.textContent = pwErr; return; }
-        body.firstName = firstName;
-        body.lastName = lastName;
+        if (pwErr) return setAuthErr(pwErr);
+        if (password !== confirm) return setAuthErr('Passwords do not match.');
+        body = { firstName, lastName, username, email, password };
+      } else {
+        const username = document.getElementById('authUser').value.trim();
+        if (!username || !password) return setAuthErr('Enter a username/email and password.');
+        body = { username, password };
       }
       authMsg.className = 'auth-msg'; authMsg.textContent = 'Please wait…';
       try {
         const data = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify(body) });
+        if (mode === 'register') {
+          // Don't auto-login — prompt to verify the email, but username login works regardless.
+          setAuthMode('login');
+          document.getElementById('authUser').value = data.username;
+          document.getElementById('authPass').value = '';
+          authMsg.className = 'auth-msg ok';
+          authMsg.innerHTML = `Account created. A verification link was sent to <b>${data.email}</b>.` +
+            (data.verificationLink ? `<br><span class="pw-hint">Dev mode — <a href="${data.verificationLink}" target="_blank" style="color:var(--accent)">open verification link</a></span>` : '') +
+            `<br>Didn't get it? Sign in with your <b>username</b>.`;
+          return;
+        }
         localStorage.setItem(TOKEN_KEY, data.token);
         localStorage.setItem(USER_KEY, data.username);
         showApp();
       } catch (e) {
-        authMsg.className = 'auth-msg err'; authMsg.textContent = e.message;
+        setAuthErr(e.message);
       }
     }
     document.getElementById('authSubmit').onclick = submitAuth;

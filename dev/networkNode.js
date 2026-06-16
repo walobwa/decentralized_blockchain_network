@@ -73,6 +73,9 @@ function mergeUser(user) {
             username: user.username,
             firstName: user.firstName,
             lastName: user.lastName,
+            email: user.email,
+            emailVerified: !!user.emailVerified,
+            verifyToken: user.verifyToken || null,
             salt: user.salt,
             passwordHash: user.passwordHash
         });
@@ -122,21 +125,29 @@ app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false}));
 
 app.post('/auth/register', function(req, res){
-    const { firstName, lastName, username, password } = req.body;
-    if (!firstName || !lastName || !username || !password) {
-        return res.status(400).json({ note: 'First name, last name, username/email, and password are required.' });
+    const { firstName, lastName, username, email, password } = req.body;
+    if (!firstName || !lastName || !username || !email || !password) {
+        return res.status(400).json({ note: 'First name, last name, username, email, and password are required.' });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ note: 'Enter a valid email address.' });
     }
 
     const passwordError = validatePassword(password);
     if (passwordError) return res.status(400).json({ note: passwordError });
 
-    if (users.find(u => u.username === username)) return res.status(409).json({ note: 'Username/email already taken.' });
+    if (users.find(u => u.username === username)) return res.status(409).json({ note: 'Username already taken.' });
+    if (users.find(u => u.email === email)) return res.status(409).json({ note: 'Email already registered.' });
 
     const salt = uuid();
+    const verifyToken = uuid().split('-').join('');
     const newUser = {
         username: username,
         firstName: firstName,
         lastName: lastName,
+        email: email,
+        emailVerified: false,
+        verifyToken: verifyToken,
         salt: salt,
         passwordHash: hashPassword(password, salt)
     };
@@ -154,9 +165,39 @@ app.post('/auth/register', function(req, res){
         json: true
     }).catch(() => null));
 
+    // Dev mode: instead of emailing, log the verification link (and return it so
+    // the UI can show it locally). Username login works without verification.
+    const verificationLink = `${bitcoin.currentNodeUrl}/auth/verify?token=${verifyToken}`;
+    console.log(`\n[email verification] would send to ${email}:\n  ${verificationLink}\n`);
+
     Promise.all(broadcast).then(() => {
-        res.json({ token: token, username: username });
+        res.json({ token: token, username: username, email: email, emailVerified: false, verificationLink: verificationLink });
     });
+});
+
+// Verify an email by clicking the link. Marks the account verified and tells
+// peers to do the same, then shows a confirmation page.
+app.get('/auth/verify', function(req, res){
+    const token = req.query.token;
+    const user = token && users.find(u => u.verifyToken && u.verifyToken === token);
+    const page = (title, body) => `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;text-align:center;padding:64px">
+        <h2 style="color:#38bdf8">Nexis Blockchain</h2><h3>${title}</h3><p>${body}</p></body></html>`;
+    if (!user) {
+        return res.status(400).send(page('Invalid or expired link', 'This verification link is not valid. The email may already be verified.'));
+    }
+    user.emailVerified = true;
+    user.verifyToken = null;
+    saveAuth();
+    bitcoin.networkNodes.forEach(nodeUrl =>
+        rp({ uri: nodeUrl + '/auth/receive-verification', method: 'POST', body: { username: user.username }, json: true }).catch(() => null));
+    res.send(page('Email verified ✓', `${user.email} is now verified. You can close this tab and sign in with your username or email.`));
+});
+
+// Internal: a peer told us one of its users verified their email.
+app.post('/auth/receive-verification', function(req, res){
+    const user = users.find(u => u.username === req.body.username);
+    if (user && !user.emailVerified) { user.emailVerified = true; user.verifyToken = null; saveAuth(); }
+    res.json({ note: 'Verification synced.' });
 });
 
 // Internal: receive a single credential broadcast from a peer (no re-broadcast).
@@ -175,16 +216,26 @@ app.post('/auth/sync-users', function(req, res){
 });
 
 app.post('/auth/login', function(req, res){
-    const { username, password } = req.body;
-    const user = users.find(u => u.username === username);
+    const { username, password } = req.body; // identifier: a username, or a verified email
+    const identifier = username;
+
+    // Username always works; email only once verified (so an undelivered link
+    // never locks anyone out — they fall back to their username).
+    const user = users.find(u => u.username === identifier) ||
+                 users.find(u => u.email === identifier && u.emailVerified);
+
     if (!user || user.passwordHash !== hashPassword(password, user.salt)) {
-        return res.status(401).json({ note: 'Invalid username or password.' });
+        const unverified = users.find(u => u.email === identifier && !u.emailVerified);
+        if (unverified) {
+            return res.status(401).json({ note: 'That email is not verified yet — sign in with your username instead.' });
+        }
+        return res.status(401).json({ note: 'Invalid username/email or password.' });
     }
 
     const token = uuid().split('-').join('');
-    sessions.set(token, username);
+    sessions.set(token, user.username);
     saveAuth();
-    res.json({ token: token, username: username });
+    res.json({ token: token, username: user.username });
 });
 
 app.get('/blockchain', requireAuth, function(req, res) {
