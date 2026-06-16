@@ -251,17 +251,41 @@
         } catch (e) { fail(e); }
       },
 
-      mine() {
-        view.innerHTML = `<h2>Mine</h2><div class="hint">Run proof-of-work over pending transactions and broadcast the new block.</div>
-          <div class="action"><button id="mineBtn">Mine a block</button></div><div class="status"></div><div id="out"></div>`;
+      async mine() {
+        view.innerHTML = `<h2>Mine</h2><div class="hint">Run proof-of-work over pending transactions and broadcast the new block, or browse every mined block below.</div>
+          <div class="action"><button id="mineBtn">Mine a block</button></div><div class="status"></div><div id="out"></div>
+          <hr class="divider" />
+          <h3 style="margin:0 0 4px">All blocks</h3>
+          <div class="hint" id="blockCount">Loading…</div>
+          <div id="allBlocks"></div>`;
+        const loadBlocks = async () => {
+          try {
+            const chain = await api('/blockchain');
+            document.getElementById('blockCount').textContent = `${chain.chain.length} block(s) mined`;
+            const body = chain.chain.map(b => `<tr class="click" data-hash="${b.hash}">
+              <td>${b.index}</td>
+              <td>${new Date(b.timestamp).toLocaleString()}</td>
+              <td>${b.transactions.length}</td>
+              <td>${b.nonce}</td>
+              <td><code>${b.hash}</code></td>
+              <td><code>${b.previousBlockHash}</code></td>
+            </tr>`).join('');
+            document.getElementById('allBlocks').innerHTML = `<div class="card"><table>
+              <thead><tr><th>#</th><th>Mined</th><th>Txs</th><th>Nonce</th><th>Hash</th><th>Previous hash</th></tr></thead>
+              <tbody>${body}</tbody></table></div>`;
+            document.querySelectorAll('#allBlocks tr.click').forEach(tr => tr.onclick = () => showBlock(tr.dataset.hash));
+          } catch (e) { document.getElementById('blockCount').textContent = e.message; }
+        };
         document.getElementById('mineBtn').onclick = async () => {
           const s = view.querySelector('.status'); s.className = 'status'; s.textContent = 'Mining… (searching for a 0000 hash)';
           try {
             const data = await api('/mine');
             s.className = 'status ok'; s.textContent = data.note;
             view.querySelector('#out').innerHTML = blockCard(data.block);
+            loadBlocks();
           } catch (e) { fail(e); }
         };
+        loadBlocks();
       },
 
       async create() {
@@ -299,16 +323,45 @@
         };
       },
 
-      transaction() {
-        view.innerHTML = `<h2>Transaction</h2><div class="hint">Look up a transaction by its ID.</div>
+      async transaction() {
+        view.innerHTML = `<h2>Transaction</h2><div class="hint">Look up a transaction by its ID, or browse every transaction on the chain below.</div>
           <div class="search"><input id="q" placeholder="Transaction ID" /><button id="go">Search</button></div>
-          <div class="status"></div><div id="out"></div>`;
+          <div class="status"></div><div id="out"></div>
+          <hr class="divider" />
+          <h3 style="margin:0 0 4px">All transactions</h3>
+          <div class="hint" id="txCount">Loading…</div>
+          <div id="allTx"></div>`;
         wireSearch(async q => {
           const data = await api('/transaction/' + encodeURIComponent(q));
           if (!data.transaction) return notFound('No transaction with that ID.');
           ok('Transaction found.');
           view.querySelector('#out').innerHTML = txCard(data.transaction, data.block);
         });
+
+        // Build a ledger of every transaction across all blocks (plus pending).
+        try {
+          const chain = await api('/blockchain');
+          const rows = [];
+          chain.chain.forEach(b => b.transactions.forEach(t => rows.push({ block: b.index, time: b.timestamp, t })));
+          chain.pendingTransactions.forEach(t => rows.push({ block: null, time: null, t }));
+          const pendingCount = chain.pendingTransactions.length;
+          document.getElementById('txCount').textContent =
+            `${rows.length} transaction(s) across ${chain.chain.length} block(s)` + (pendingCount ? `, ${pendingCount} pending` : '');
+          if (!rows.length) { document.getElementById('allTx').innerHTML = `<div class="card">No transactions recorded yet.</div>`; return; }
+          const body = rows.map(r => `<tr>
+            <td>${r.block === null ? '<em>pending</em>' : '#' + r.block}</td>
+            <td>${r.time ? new Date(r.time).toLocaleString() : '—'}</td>
+            <td>${r.t.amount}</td>
+            <td><code>${r.t.sender}</code></td>
+            <td><code>${r.t.recipient}</code></td>
+            <td><code>${r.t.transactionId || '—'}</code></td>
+          </tr>`).join('');
+          document.getElementById('allTx').innerHTML = `<div class="card"><table>
+            <thead><tr><th>Block</th><th>Time</th><th>Amount</th><th>Sender</th><th>Recipient</th><th>Tx ID</th></tr></thead>
+            <tbody>${body}</tbody></table></div>`;
+        } catch (e) {
+          document.getElementById('txCount').textContent = e.message;
+        }
       },
 
       address() {
