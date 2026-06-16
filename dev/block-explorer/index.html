@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexis Blockchain</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#1e293b; --panel2:#172033; --accent:#38bdf8; --muted:#94a3b8; --ok:#34d399; --err:#f87171; --border:#334155; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:#e2e8f0; }
+    code { background:#0b1220; padding:2px 6px; border-radius:4px; word-break:break-all; }
+    button { cursor:pointer; }
+
+    /* ---- Auth screen ---- */
+    #auth { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .auth-card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px; width:360px; }
+    .brand { font-size:24px; font-weight:800; text-align:center; margin-bottom:4px; }
+    .brand span { color:var(--accent); }
+    .auth-sub { text-align:center; color:var(--muted); font-size:13px; margin-bottom:20px; }
+    .tabs { display:flex; margin-bottom:18px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .tabs button { flex:1; padding:10px; background:var(--panel2); color:var(--muted); border:none; font-weight:600; }
+    .tabs button.active { background:var(--accent); color:#0f172a; }
+    .field { margin-bottom:12px; }
+    .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+    .field input { width:100%; padding:11px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel2); color:#e2e8f0; font-size:14px; }
+    .submit { width:100%; padding:12px; border-radius:9px; border:none; background:var(--accent); color:#0f172a; font-weight:700; font-size:15px; margin-top:6px; }
+    .auth-msg { min-height:18px; font-size:13px; margin-top:12px; text-align:center; }
+    .auth-msg.err { color:var(--err); }
+    .auth-msg.ok { color:var(--ok); }
+
+    /* ---- App shell ---- */
+    #app { display:none; min-height:100vh; grid-template-columns:240px 1fr; }
+    .sidebar { background:var(--panel2); border-right:1px solid var(--border); padding:20px 14px; display:flex; flex-direction:column; }
+    .sidebar .logo { font-size:20px; font-weight:800; padding:6px 10px 18px; }
+    .sidebar .logo span { color:var(--accent); }
+    .nav { display:flex; flex-direction:column; gap:4px; }
+    .nav button { text-align:left; padding:11px 12px; border-radius:9px; background:transparent; border:none; color:#cbd5e1; font-size:14px; font-weight:600; }
+    .nav button:hover { background:var(--panel); }
+    .nav button.active { background:var(--accent); color:#0f172a; }
+    .sidebar .foot { margin-top:auto; padding-top:16px; border-top:1px solid var(--border); }
+    .sidebar .who { font-size:12px; color:var(--muted); padding:6px 10px; }
+    .logout { width:100%; padding:10px; border-radius:9px; background:transparent; border:1px solid var(--border); color:#cbd5e1; font-weight:600; }
+    .logout:hover { border-color:var(--err); color:var(--err); }
+
+    .content { padding:28px 32px; max-width:980px; }
+    .content h2 { margin:0 0 4px; }
+    .content .hint { color:var(--muted); font-size:13px; margin-bottom:20px; }
+    .search { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+    .search input { flex:1; min-width:220px; padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel); color:#e2e8f0; font-size:14px; }
+    .search select { padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel); color:#e2e8f0; font-size:14px; }
+    .divider { border:none; border-top:1px solid var(--border); margin:28px 0; }
+    .form { display:flex; gap:8px; flex-wrap:wrap; }
+    .form input { flex:1; min-width:150px; padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel2); color:#e2e8f0; font-size:14px; }
+    .search button, .action button { padding:10px 16px; border-radius:9px; border:none; background:var(--accent); color:#0f172a; font-weight:700; font-size:14px; }
+    .status { min-height:20px; font-size:14px; margin:12px 0; }
+    .status.err { color:var(--err); }
+    .status.ok { color:var(--ok); }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:16px; }
+    .card h3 { margin:0 0 10px; font-size:15px; color:var(--accent); }
+    .row { display:flex; gap:10px; padding:6px 0; border-bottom:1px solid #2b3a52; font-size:13px; }
+    .row:last-child { border-bottom:none; }
+    .row .k { color:var(--muted); width:150px; flex-shrink:0; }
+    .row .v { word-break:break-all; }
+    .balance { font-size:30px; font-weight:800; color:var(--ok); margin:4px 0 12px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { text-align:left; padding:8px 6px; border-bottom:1px solid #2b3a52; word-break:break-all; }
+    th { color:var(--muted); font-weight:600; }
+    tr.click { cursor:pointer; }
+    tr.click:hover td { background:var(--panel2); }
+  </style>
+</head>
+<body>
+  <!-- ============ AUTH ============ -->
+  <div id="auth">
+    <div class="auth-card">
+      <div class="brand">Nexis <span>Blockchain</span></div>
+      <div class="auth-sub">Sign in to explore the chain</div>
+      <div class="tabs">
+        <button id="tabLogin" class="active">Log In</button>
+        <button id="tabRegister">Register</button>
+      </div>
+      <div class="field">
+        <label>Username</label>
+        <input id="authUser" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="authPass" type="password" autocomplete="current-password" />
+      </div>
+      <button class="submit" id="authSubmit">Log In</button>
+      <div id="authMsg" class="auth-msg"></div>
+    </div>
+  </div>
+
+  <!-- ============ APP ============ -->
+  <div id="app">
+    <aside class="sidebar">
+      <div class="logo">Nexis <span>Blockchain</span></div>
+      <nav class="nav">
+        <button data-view="blockchain" class="active">Blockchain</button>
+        <button data-view="mine">Mine</button>
+        <button data-view="create">New Transaction</button>
+        <button data-view="transaction">Transaction</button>
+        <button data-view="address">Address</button>
+      </nav>
+      <div class="foot">
+        <div class="who" id="who"></div>
+        <button class="logout" id="logout">Log out</button>
+      </div>
+    </aside>
+    <main class="content">
+      <section class="verify">
+        <h2>Verify</h2>
+        <div class="hint">Look up and verify a block hash, transaction ID, or address on this node's chain.</div>
+        <div class="search">
+          <select id="vType">
+            <option value="block">Block hash</option>
+            <option value="transaction">Transaction ID</option>
+            <option value="address">Address</option>
+          </select>
+          <input id="vQuery" placeholder="Paste a block hash, transaction ID, or address…" />
+          <button id="vGo">Search</button>
+        </div>
+        <div id="vStatus" class="status"></div>
+        <div id="vOut"></div>
+      </section>
+      <hr class="divider" />
+      <section id="view"></section>
+    </main>
+  </div>
+
+  <script>
+    const TOKEN_KEY = 'nexis_token';
+    const USER_KEY  = 'nexis_user';
+    let mode = 'login';
+
+    /* ---------- helpers ---------- */
+    function token() { return localStorage.getItem(TOKEN_KEY); }
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      const t = token();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) { logout(); throw new Error('Session expired. Please log in again.'); }
+      if (!res.ok) throw new Error(data.note || ('Request failed (' + res.status + ')'));
+      return data;
+    }
+    function row(k, v) { return `<div class="row"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+
+    /* ---------- auth ---------- */
+    const authMsg = document.getElementById('authMsg');
+    function setAuthMode(m) {
+      mode = m;
+      document.getElementById('tabLogin').classList.toggle('active', m === 'login');
+      document.getElementById('tabRegister').classList.toggle('active', m === 'register');
+      document.getElementById('authSubmit').textContent = m === 'login' ? 'Log In' : 'Register';
+      authMsg.textContent = '';
+    }
+    document.getElementById('tabLogin').onclick = () => setAuthMode('login');
+    document.getElementById('tabRegister').onclick = () => setAuthMode('register');
+
+    async function submitAuth() {
+      const username = document.getElementById('authUser').value.trim();
+      const password = document.getElementById('authPass').value;
+      if (!username || !password) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter a username and password.'; return; }
+      authMsg.className = 'auth-msg'; authMsg.textContent = 'Please wait…';
+      try {
+        const data = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify({ username, password }) });
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(USER_KEY, data.username);
+        showApp();
+      } catch (e) {
+        authMsg.className = 'auth-msg err'; authMsg.textContent = e.message;
+      }
+    }
+    document.getElementById('authSubmit').onclick = submitAuth;
+    document.getElementById('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+
+    function logout() {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('auth').style.display = 'flex';
+    }
+    document.getElementById('logout').onclick = logout;
+
+    /* ---------- app shell ---------- */
+    function showApp() {
+      document.getElementById('auth').style.display = 'none';
+      document.getElementById('app').style.display = 'grid';
+      document.getElementById('who').textContent = 'Signed in as ' + (localStorage.getItem(USER_KEY) || '');
+      selectView('blockchain');
+    }
+
+    /* ---------- persistent verify panel ---------- */
+    const vType = document.getElementById('vType');
+    const vQuery = document.getElementById('vQuery');
+    const vStatus = document.getElementById('vStatus');
+    const vOut = document.getElementById('vOut');
+    function vSet(msg, kind) { vStatus.textContent = msg || ''; vStatus.className = 'status' + (kind ? ' ' + kind : ''); }
+    async function verify() {
+      const type = vType.value;
+      const q = vQuery.value.trim();
+      vOut.innerHTML = '';
+      if (!q) { vSet('Enter a value to search.', 'err'); return; }
+      vSet('Searching…');
+      try {
+        if (type === 'block') {
+          const data = await api('/block/' + encodeURIComponent(q));
+          if (!data.block) return vSet('No block found with that hash.', 'err');
+          vSet('Block found.', 'ok'); vOut.innerHTML = blockCard(data.block);
+        } else if (type === 'transaction') {
+          const data = await api('/transaction/' + encodeURIComponent(q));
+          if (!data.transaction) return vSet('No transaction found with that ID.', 'err');
+          vSet('Transaction found.', 'ok'); vOut.innerHTML = txCard(data.transaction, data.block);
+        } else {
+          const data = await api('/address/' + encodeURIComponent(q));
+          const ad = data.addressData;
+          if (!ad || ad.addressTransactions.length === 0) return vSet('No activity for that address.', 'err');
+          vSet('Address found.', 'ok'); vOut.innerHTML = addressCard(q, ad);
+        }
+      } catch (e) { vSet(e.message, 'err'); }
+    }
+    document.getElementById('vGo').onclick = verify;
+    vQuery.addEventListener('keydown', e => { if (e.key === 'Enter') verify(); });
+    document.querySelectorAll('.nav button').forEach(btn => {
+      btn.onclick = () => selectView(btn.dataset.view);
+    });
+    function selectView(view) {
+      document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+      views[view]();
+    }
+
+    const view = document.getElementById('view');
+
+    /* ---------- views ---------- */
+    const views = {
+      async blockchain() {
+        view.innerHTML = `<h2>Blockchain</h2><div class="hint">This node's full chain. Click a block to inspect it.</div><div class="status">Loading…</div><div id="out"></div>`;
+        try {
+          const chain = await api('/blockchain');
+          view.querySelector('.status').textContent = `${chain.chain.length} blocks · ${chain.networkNodes.length} peers · ${chain.pendingTransactions.length} pending tx`;
+          view.querySelector('.status').className = 'status ok';
+          const rows = chain.chain.map(b => `<tr class="click" data-hash="${b.hash}">
+            <td>${b.index}</td><td><code>${b.hash}</code></td><td>${b.transactions.length}</td>
+            <td>${new Date(b.timestamp).toLocaleString()}</td></tr>`).join('');
+          view.querySelector('#out').innerHTML = `<div class="card"><table>
+            <thead><tr><th>#</th><th>Hash</th><th>Txs</th><th>Mined</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+          view.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => showBlock(tr.dataset.hash));
+        } catch (e) { fail(e); }
+      },
+
+      mine() {
+        view.innerHTML = `<h2>Mine</h2><div class="hint">Run proof-of-work over pending transactions and broadcast the new block.</div>
+          <div class="action"><button id="mineBtn">Mine a block</button></div><div class="status"></div><div id="out"></div>`;
+        document.getElementById('mineBtn').onclick = async () => {
+          const s = view.querySelector('.status'); s.className = 'status'; s.textContent = 'Mining… (searching for a 0000 hash)';
+          try {
+            const data = await api('/mine');
+            s.className = 'status ok'; s.textContent = data.note;
+            view.querySelector('#out').innerHTML = blockCard(data.block);
+          } catch (e) { fail(e); }
+        };
+      },
+
+      create() {
+        view.innerHTML = `<h2>New Transaction</h2><div class="hint">Create a transaction and broadcast it to the network's pending pool. It will be included in the next mined block.</div>
+          <div class="card"><h3>Create transaction</h3>
+            <div class="form">
+              <input id="txAmount" type="number" min="0" step="any" placeholder="Amount" />
+              <input id="txSender" placeholder="Sender" />
+              <input id="txRecipient" placeholder="Recipient" />
+            </div>
+            <div class="action" style="margin-top:12px"><button id="txCreate">Create &amp; broadcast</button></div>
+          </div>
+          <div class="status"></div><div id="out"></div>`;
+        document.getElementById('txCreate').onclick = async () => {
+          const amount = parseFloat(document.getElementById('txAmount').value);
+          const sender = document.getElementById('txSender').value.trim();
+          const recipient = document.getElementById('txRecipient').value.trim();
+          if (!(amount > 0) || !sender || !recipient) { notFound('Enter a positive amount, a sender, and a recipient.'); return; }
+          status().className = 'status'; status().textContent = 'Broadcasting…';
+          try {
+            const data = await api('/transaction/broadcast', { method: 'POST', body: JSON.stringify({ amount, sender, recipient }) });
+            ok(data.note);
+            view.querySelector('#out').innerHTML = data.transaction ? txCard(data.transaction, null) : '';
+            document.getElementById('txAmount').value = '';
+            document.getElementById('txSender').value = '';
+            document.getElementById('txRecipient').value = '';
+          } catch (e) { fail(e); }
+        };
+      },
+
+      transaction() {
+        view.innerHTML = `<h2>Transaction</h2><div class="hint">Look up a transaction by its ID.</div>
+          <div class="search"><input id="q" placeholder="Transaction ID" /><button id="go">Search</button></div>
+          <div class="status"></div><div id="out"></div>`;
+        wireSearch(async q => {
+          const data = await api('/transaction/' + encodeURIComponent(q));
+          if (!data.transaction) return notFound('No transaction with that ID.');
+          ok('Transaction found.');
+          view.querySelector('#out').innerHTML = txCard(data.transaction, data.block);
+        });
+      },
+
+      address() {
+        view.innerHTML = `<h2>Address</h2><div class="hint">View an address's balance and transaction history.</div>
+          <div class="search"><input id="q" placeholder="Address (e.g. ALICE)" /><button id="go">Search</button></div>
+          <div class="status"></div><div id="out"></div>`;
+        wireSearch(async q => {
+          const data = await api('/address/' + encodeURIComponent(q));
+          const ad = data.addressData;
+          if (!ad || ad.addressTransactions.length === 0) return notFound('No activity for that address.');
+          ok('Address found.');
+          view.querySelector('#out').innerHTML = addressCard(q, ad);
+        });
+      }
+    };
+
+    /* ---------- shared render ---------- */
+    function status() { return view.querySelector('.status'); }
+    function ok(m) { const s = status(); s.className = 'status ok'; s.textContent = m; }
+    function notFound(m) { const s = status(); s.className = 'status err'; s.textContent = m; view.querySelector('#out').innerHTML = ''; }
+    function fail(e) { const s = status(); if (s) { s.className = 'status err'; s.textContent = e.message; } }
+
+    function wireSearch(handler) {
+      const input = view.querySelector('#q');
+      const run = async () => {
+        const q = input.value.trim();
+        if (!q) { notFound('Enter a value to search.'); return; }
+        status().className = 'status'; status().textContent = 'Searching…';
+        try { await handler(q); } catch (e) { fail(e); }
+      };
+      view.querySelector('#go').onclick = run;
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+    }
+
+    async function showBlock(hash) {
+      try {
+        const data = await api('/block/' + encodeURIComponent(hash));
+        if (!data.block) return;
+        const out = view.querySelector('#out');
+        out.insertAdjacentHTML('afterbegin', blockCard(data.block));
+        out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) { fail(e); }
+    }
+
+    function blockCard(block) {
+      const txs = block.transactions.map(t =>
+        `<tr><td><code>${t.transactionId}</code></td><td>${t.amount}</td><td><code>${t.sender}</code></td><td><code>${t.recipient}</code></td></tr>`).join('');
+      return `<div class="card"><h3>Block #${block.index}</h3>
+        ${row('Hash', `<code>${block.hash}</code>`)}
+        ${row('Previous hash', `<code>${block.previousBlockHash}</code>`)}
+        ${row('Nonce', block.nonce)}
+        ${row('Mined', new Date(block.timestamp).toLocaleString())}
+        ${row('Transactions', block.transactions.length)}
+        ${block.transactions.length ? `<table style="margin-top:10px"><thead><tr><th>Tx ID</th><th>Amount</th><th>Sender</th><th>Recipient</th></tr></thead><tbody>${txs}</tbody></table>` : ''}
+      </div>`;
+    }
+    function txCard(t, block) {
+      return `<div class="card"><h3>Transaction</h3>
+        ${row('Transaction ID', `<code>${t.transactionId}</code>`)}
+        ${row('Amount', t.amount)}
+        ${row('Sender', `<code>${t.sender}</code>`)}
+        ${row('Recipient', `<code>${t.recipient}</code>`)}
+        ${block ? row('In block', `#${block.index}`) : ''}
+      </div>`;
+    }
+    function addressCard(address, data) {
+      const rows = data.addressTransactions.map(t => `<tr>
+        <td><code>${t.transactionId}</code></td><td>${t.amount}</td><td><code>${t.sender}</code></td><td><code>${t.recipient}</code></td></tr>`).join('');
+      return `<div class="card"><h3>Address ${address}</h3>
+        <div class="balance">${data.addressBalance}</div>
+        <table><thead><tr><th>Tx ID</th><th>Amount</th><th>Sender</th><th>Recipient</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    }
+
+    /* ---------- boot ---------- */
+    setAuthMode('login');
+    if (token()) showApp();
+  </script>
+</body>
+</html>
