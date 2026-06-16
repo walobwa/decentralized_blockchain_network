@@ -248,6 +248,11 @@ app.post('/auth/login', function(req, res){
     res.json({ token: token, username: user.username });
 });
 
+// Lightweight keepalive: requireAuth refreshes the session's sliding window.
+app.get('/auth/ping', requireAuth, function(req, res){
+    res.json({ ok: true });
+});
+
 // Invalidate the current session server-side (manual logout or idle timeout).
 app.post('/auth/logout', function(req, res){
     const header = req.headers['authorization'] || '';

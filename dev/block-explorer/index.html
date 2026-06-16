@@ -30,6 +30,14 @@
 
     .pw-hint { font-size:11px; color:var(--muted); margin-top:6px; line-height:1.4; }
 
+    .idle-banner { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:50;
+      display:flex; align-items:center; gap:14px; background:var(--panel); border:1px solid var(--accent);
+      border-radius:10px; padding:12px 16px; box-shadow:0 10px 34px rgba(0,0,0,.45); font-size:14px; }
+    .idle-banner b { color:var(--accent); }
+    .idle-banner button { background:var(--accent); color:#0f172a; border:none; border-radius:8px;
+      padding:8px 14px; font-weight:700; cursor:pointer; }
+    .idle-banner button:hover { opacity:.9; }
+
     /* ---- App shell ---- */
     #app { display:none; min-height:100vh; grid-template-columns:240px 1fr; }
     .sidebar { background:var(--panel2); border-right:1px solid var(--border); padding:20px 14px; display:flex; flex-direction:column; }
@@ -117,6 +125,10 @@
 
   <!-- ============ APP ============ -->
   <div id="app">
+    <div id="idleBanner" class="idle-banner" style="display:none">
+      <span>For your security, you'll be signed out in <b id="idleCountdown">30</b>s due to inactivity.</span>
+      <button id="staySignedIn">Stay signed in</button>
+    </div>
     <aside class="sidebar">
       <div class="logo">Nexis <span>Blockchain</span></div>
       <nav class="nav">
@@ -257,17 +269,51 @@
     }
     document.getElementById('logout').onclick = () => logout();
 
-    /* ---------- inactivity auto-logout (5 minutes) ---------- */
+    /* ---------- inactivity auto-logout (5 minutes) with warning banner ---------- */
     const IDLE_LIMIT_MS = 5 * 60 * 1000;
-    let idleTimer = null;
-    function stopIdleTimer() { if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; } }
+    const WARNING_LEAD_MS = 30 * 1000;   // show the banner 30s before logout
+    const PING_THROTTLE_MS = 60 * 1000;  // keep the server session warm at most once/min
+    let idleTimer = null, warnTimer = null, countdownInterval = null, lastPing = 0;
+
+    function hideIdleBanner() {
+      document.getElementById('idleBanner').style.display = 'none';
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    }
+    function stopIdleTimer() {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (warnTimer) { clearTimeout(warnTimer); warnTimer = null; }
+      hideIdleBanner();
+    }
+    function showIdleWarning() {
+      const banner = document.getElementById('idleBanner');
+      const label = document.getElementById('idleCountdown');
+      let remaining = Math.round(WARNING_LEAD_MS / 1000);
+      label.textContent = remaining;
+      banner.style.display = 'flex';
+      countdownInterval = setInterval(() => {
+        remaining -= 1;
+        label.textContent = Math.max(0, remaining);
+        if (remaining <= 0) { clearInterval(countdownInterval); countdownInterval = null; }
+      }, 1000);
+    }
     function resetIdleTimer() {
       if (!token()) return; // only while signed in
       stopIdleTimer();
+      warnTimer = setTimeout(showIdleWarning, IDLE_LIMIT_MS - WARNING_LEAD_MS);
       idleTimer = setTimeout(() => logout('You were logged out after 5 minutes of inactivity.'), IDLE_LIMIT_MS);
+      // Throttled keepalive so the server's sliding window stays aligned with the client.
+      if (Date.now() - lastPing > PING_THROTTLE_MS) {
+        lastPing = Date.now();
+        api('/auth/ping').catch(() => {});
+      }
     }
     ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(ev =>
       document.addEventListener(ev, resetIdleTimer, { passive: true }));
+    document.getElementById('staySignedIn').onclick = () => {
+      lastPing = Date.now();
+      api('/auth/ping').catch(() => {});
+      resetIdleTimer();
+    };
 
     /* ---------- app shell ---------- */
     function showApp() {
