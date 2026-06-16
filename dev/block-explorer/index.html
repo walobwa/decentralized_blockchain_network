@@ -133,7 +133,6 @@
       <div class="logo">Nexis <span>Blockchain</span></div>
       <nav class="nav">
         <button data-view="blockchain" class="active">Blockchain</button>
-        <button data-view="live">Live Explorer</button>
         <button data-view="mine">Mine</button>
         <button data-view="create">New Transaction</button>
         <button data-view="transaction">Transaction</button>
@@ -169,7 +168,6 @@
     const TOKEN_KEY = 'nexis_token';
     const USER_KEY  = 'nexis_user';
     let mode = 'login';
-    let liveRefresh = null; // interval handle for the Live Explorer auto-refresh
 
     /* ---------- helpers ---------- */
     function token() { return localStorage.getItem(TOKEN_KEY); }
@@ -261,7 +259,6 @@
     function logout(message) {
       const t = token();
       stopIdleTimer();
-      if (liveRefresh) { clearInterval(liveRefresh); liveRefresh = null; }
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
       // Best-effort server-side invalidation (raw fetch so a 401 here can't recurse into logout).
@@ -362,7 +359,6 @@
       btn.onclick = () => selectView(btn.dataset.view);
     });
     function selectView(view) {
-      if (liveRefresh) { clearInterval(liveRefresh); liveRefresh = null; } // stop Live auto-refresh when leaving
       document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
       views[view]();
     }
@@ -371,47 +367,6 @@
 
     /* ---------- views ---------- */
     const views = {
-      async live() {
-        view.innerHTML = `<h2>Live Explorer <span style="font-size:12px;color:var(--muted);font-weight:400">· Bitcoin mainnet</span></h2>
-          <div class="hint">Live data from the Bitcoin network via <a href="https://mempool.space" target="_blank" style="color:var(--accent)">mempool.space</a>. Auto-refreshes every 30s.</div>
-          <div class="status" id="liveStatus">Loading…</div>
-          <h3 style="margin:18px 0 4px">Latest blocks</h3><div id="liveBlocks"></div>
-          <h3 style="margin:18px 0 4px">Transaction value trend</h3><div id="liveTxChart"></div>
-          <h3 style="margin:18px 0 4px">Latest transactions (mempool)</h3><div id="liveTx"></div>`;
-        const load = async () => {
-          try {
-            const [b, t] = await Promise.all([api('/live/blocks'), api('/live/transactions')]);
-            const status = document.getElementById('liveStatus');
-            if (!status) return; // view changed mid-fetch
-            status.className = 'status ok';
-            status.textContent = 'Updated ' + new Date().toLocaleTimeString();
-            const bRows = (b.blocks || []).map(x => `<tr>
-              <td>${x.height}</td>
-              <td>${new Date(x.timestamp * 1000).toLocaleTimeString()}</td>
-              <td>${(x.tx_count || 0).toLocaleString()}</td>
-              <td>${(x.size / 1e6).toFixed(2)} MB</td>
-              <td><code>${x.id.slice(0, 18)}…</code></td>
-            </tr>`).join('');
-            document.getElementById('liveBlocks').innerHTML = `<div class="card"><table>
-              <thead><tr><th>Height</th><th>Time</th><th>Txs</th><th>Size</th><th>Hash</th></tr></thead><tbody>${bRows}</tbody></table></div>`;
-            const tRows = (t.transactions || []).map(x => `<tr>
-              <td><code>${x.txid.slice(0, 22)}…</code></td>
-              <td>${(x.value / 1e8).toFixed(8)} BTC</td>
-              <td>${(x.fee || 0).toLocaleString()} sat</td>
-              <td>${x.vsize} vB</td>
-            </tr>`).join('');
-            document.getElementById('liveTx').innerHTML = `<div class="card"><table>
-              <thead><tr><th>Tx ID</th><th>Value</th><th>Fee</th><th>Size</th></tr></thead><tbody>${tRows}</tbody></table></div>`;
-            document.getElementById('liveTxChart').innerHTML = txChart(t.transactions || []);
-          } catch (e) {
-            const s = document.getElementById('liveStatus');
-            if (s) { s.className = 'status err'; s.textContent = e.message; }
-          }
-        };
-        await load();
-        liveRefresh = setInterval(load, 30000);
-      },
-
       async blockchain() {
         view.innerHTML = `<h2>Blockchain</h2><div class="hint">This node's full chain. Click a block to inspect it.</div><div class="status">Loading…</div><div id="out"></div>`;
         try {
@@ -580,36 +535,6 @@
         out.insertAdjacentHTML('afterbegin', blockCard(data.block));
         out.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) { fail(e); }
-    }
-
-    // Inline SVG line chart of recent transaction values. Each segment is green
-    // when the value rises vs the previous transaction, red when it falls.
-    function txChart(transactions) {
-      const pts = transactions.slice().reverse().map(t => t.value / 1e8); // BTC, oldest -> newest
-      const n = pts.length;
-      if (n < 2) return `<div class="card">Not enough transactions to chart yet.</div>`;
-      const W = 600, H = 170, pad = 26;
-      const max = Math.max(...pts), min = Math.min(...pts), range = (max - min) || 1;
-      const x = i => pad + (i * (W - 2 * pad)) / (n - 1);
-      const y = v => H - pad - ((v - min) / range) * (H - 2 * pad);
-      const up = (i) => pts[i] >= pts[i - 1];
-      const GREEN = '#34d399', RED = '#f87171';
-      let segs = '', dots = '';
-      for (let i = 1; i < n; i++) {
-        const c = up(i) ? GREEN : RED;
-        segs += `<line x1="${x(i-1).toFixed(1)}" y1="${y(pts[i-1]).toFixed(1)}" x2="${x(i).toFixed(1)}" y2="${y(pts[i]).toFixed(1)}" stroke="${c}" stroke-width="2.5" stroke-linecap="round" />`;
-      }
-      dots = pts.map((v, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${i === 0 ? '#94a3b8' : (up(i) ? GREEN : RED)}"><title>${v.toFixed(8)} BTC</title></circle>`).join('');
-      const rising = pts[n - 1] >= pts[0];
-      const badge = `<span style="color:${rising ? GREEN : RED};font-weight:700">${rising ? '▲ Up' : '▼ Down'}</span>`;
-      const baseline = `<line x1="${pad}" y1="${(H-pad).toFixed(1)}" x2="${W-pad}" y2="${(H-pad).toFixed(1)}" stroke="#2b3a52" stroke-width="1" />`;
-      return `<div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
-          <div>Trend across last ${n} transactions: ${badge}</div>
-          <span class="hint" style="margin:0">High ${max.toFixed(4)} · Low ${min.toFixed(4)} BTC</span>
-        </div>
-        <svg viewBox="0 0 ${W} ${H}" width="100%" preserveAspectRatio="none" style="display:block">${baseline}${segs}${dots}</svg>
-      </div>`;
     }
 
     function blockCard(block) {
