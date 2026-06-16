@@ -51,6 +51,19 @@ function hashPassword(password, salt) {
     return sha256(password + salt);
 }
 
+// Password policy: >= 8 chars with upper, lower, number, and special character.
+// Returns an error message, or null if the password is acceptable.
+function validatePassword(password) {
+    if (typeof password !== 'string' || password.length < 8) {
+        return 'Password must be at least 8 characters long.';
+    }
+    if (!/[A-Z]/.test(password)) return 'Password must contain an uppercase letter.';
+    if (!/[a-z]/.test(password)) return 'Password must contain a lowercase letter.';
+    if (!/[0-9]/.test(password)) return 'Password must contain a number.';
+    if (!/[^A-Za-z0-9]/.test(password)) return 'Password must contain a special character.';
+    return null;
+}
+
 // Add an already-hashed user record from a peer if we don't have it. Returns
 // true if it was newly added (idempotent by username).
 function mergeUser(user) {
@@ -105,6 +118,10 @@ app.use(bodyParser.urlencoded({ extended: false}));
 app.post('/auth/register', function(req, res){
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ note: 'Username and password are required.' });
+
+    const passwordError = validatePassword(password);
+    if (passwordError) return res.status(400).json({ note: passwordError });
+
     if (users.find(u => u.username === username)) return res.status(409).json({ note: 'Username already taken.' });
 
     const salt = uuid();

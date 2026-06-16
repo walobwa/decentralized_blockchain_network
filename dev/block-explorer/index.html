@@ -28,6 +28,8 @@
     .auth-msg.err { color:var(--err); }
     .auth-msg.ok { color:var(--ok); }
 
+    .pw-hint { font-size:11px; color:var(--muted); margin-top:6px; line-height:1.4; }
+
     /* ---- App shell ---- */
     #app { display:none; min-height:100vh; grid-template-columns:240px 1fr; }
     .sidebar { background:var(--panel2); border-right:1px solid var(--border); padding:20px 14px; display:flex; flex-direction:column; }
@@ -86,6 +88,7 @@
       <div class="field">
         <label>Password</label>
         <input id="authPass" type="password" autocomplete="current-password" />
+        <div id="pwHint" class="pw-hint" style="display:none">At least 8 characters, including uppercase, lowercase, a number, and a special character.</div>
       </div>
       <button class="submit" id="authSubmit">Log In</button>
       <div id="authMsg" class="auth-msg"></div>
@@ -150,11 +153,21 @@
 
     /* ---------- auth ---------- */
     const authMsg = document.getElementById('authMsg');
+    // Mirrors the server-side password policy so users get instant feedback.
+    function passwordError(password) {
+      if (password.length < 8) return 'Password must be at least 8 characters long.';
+      if (!/[A-Z]/.test(password)) return 'Password must contain an uppercase letter.';
+      if (!/[a-z]/.test(password)) return 'Password must contain a lowercase letter.';
+      if (!/[0-9]/.test(password)) return 'Password must contain a number.';
+      if (!/[^A-Za-z0-9]/.test(password)) return 'Password must contain a special character.';
+      return null;
+    }
     function setAuthMode(m) {
       mode = m;
       document.getElementById('tabLogin').classList.toggle('active', m === 'login');
       document.getElementById('tabRegister').classList.toggle('active', m === 'register');
       document.getElementById('authSubmit').textContent = m === 'login' ? 'Log In' : 'Register';
+      document.getElementById('pwHint').style.display = m === 'register' ? 'block' : 'none';
       authMsg.textContent = '';
     }
     document.getElementById('tabLogin').onclick = () => setAuthMode('login');
@@ -164,6 +177,10 @@
       const username = document.getElementById('authUser').value.trim();
       const password = document.getElementById('authPass').value;
       if (!username || !password) { authMsg.className = 'auth-msg err'; authMsg.textContent = 'Enter a username and password.'; return; }
+      if (mode === 'register') {
+        const pwErr = passwordError(password);
+        if (pwErr) { authMsg.className = 'auth-msg err'; authMsg.textContent = pwErr; return; }
+      }
       authMsg.className = 'auth-msg'; authMsg.textContent = 'Please wait…';
       try {
         const data = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify({ username, password }) });
