@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nexis Blockchain</title>
+  <style>
+    :root { --bg:#0f172a; --panel:#1e293b; --panel2:#172033; --accent:#38bdf8; --muted:#94a3b8; --ok:#34d399; --err:#f87171; --border:#334155; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:#e2e8f0; }
+    code { background:#0b1220; padding:2px 6px; border-radius:4px; word-break:break-all; }
+    button { cursor:pointer; }
+
+    /* ---- Auth screen ---- */
+    #auth { min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+    .auth-card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:28px; width:360px; }
+    .brand { font-size:24px; font-weight:800; text-align:center; margin-bottom:4px; }
+    .brand span { color:var(--accent); }
+    .auth-sub { text-align:center; color:var(--muted); font-size:13px; margin-bottom:20px; }
+    .tabs { display:flex; margin-bottom:18px; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .tabs button { flex:1; padding:10px; background:var(--panel2); color:var(--muted); border:none; font-weight:600; }
+    .tabs button.active { background:var(--accent); color:#0f172a; }
+    .field { margin-bottom:12px; }
+    .field label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; }
+    .field input { width:100%; padding:11px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel2); color:#e2e8f0; font-size:14px; }
+    .submit { width:100%; padding:12px; border-radius:9px; border:none; background:var(--accent); color:#0f172a; font-weight:700; font-size:15px; margin-top:6px; }
+    .auth-msg { min-height:18px; font-size:13px; margin-top:12px; text-align:center; }
+    .auth-msg.err { color:var(--err); }
+    .auth-msg.ok { color:var(--ok); }
+
+    .pw-hint { font-size:11px; color:var(--muted); margin-top:6px; line-height:1.4; }
+
+    /* ---- Decorative animated background (aesthetic only) ---- */
+    #bgFx { position:fixed; inset:0; z-index:0; overflow:hidden; pointer-events:none; }
+    #bgFx .net { position:absolute; inset:0; width:100%; height:100%; opacity:.06; }
+    #bgFx .glow { position:absolute; border-radius:50%; filter:blur(70px); opacity:.05; }
+    .glow1 { width:440px; height:440px; top:-90px; left:-70px; background:radial-gradient(circle,#38bdf8,transparent 70%); animation:drift 18s ease-in-out infinite; }
+    .glow2 { width:380px; height:380px; bottom:-110px; right:-50px; background:radial-gradient(circle,#a78bfa,transparent 70%); animation:drift 23s ease-in-out infinite reverse; }
+    .glow3 { width:320px; height:320px; top:42%; left:52%; background:radial-gradient(circle,#34d399,transparent 70%); animation:drift 28s ease-in-out infinite; }
+    .node { animation:pulse 3s ease-in-out infinite; }
+    .flow { stroke-dasharray:6 8; animation:flow 3s linear infinite; }
+    .float { transform-box:fill-box; transform-origin:center; animation:float 7s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:.25} 50%{opacity:.95} }
+    @keyframes flow { to { stroke-dashoffset:-56; } }
+    @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-16px)} }
+    @keyframes drift { 0%,100%{transform:translate(0,0)} 50%{transform:translate(40px,30px)} }
+    @media (prefers-reduced-motion: reduce) { .node,.flow,.float,.glow { animation:none; } }
+    #auth, #app, .site-footer { position:relative; z-index:1; }
+    .sidebar .logo { cursor:pointer; }
+    .sidebar .logo:hover { opacity:.85; }
+
+    .site-footer { text-align:center; padding:16px; font-size:12px; color:var(--muted); border-top:1px solid var(--border); }
+    .site-footer b { color:var(--accent); }
+
+    .idle-banner { position:fixed; top:16px; left:50%; transform:translateX(-50%); z-index:50;
+      display:flex; align-items:center; gap:14px; background:var(--panel); border:1px solid var(--accent);
+      border-radius:10px; padding:12px 16px; box-shadow:0 10px 34px rgba(0,0,0,.45); font-size:14px; }
+    .idle-banner b { color:var(--accent); }
+    .idle-banner button { background:var(--accent); color:#0f172a; border:none; border-radius:8px;
+      padding:8px 14px; font-weight:700; cursor:pointer; }
+    .idle-banner button:hover { opacity:.9; }
+
+    /* ---- App shell ---- */
+    #app { display:none; min-height:100vh; grid-template-columns:240px 1fr; }
+    .sidebar { background:var(--panel2); border-right:1px solid var(--border); padding:20px 14px; display:flex; flex-direction:column; }
+    .sidebar .logo { font-size:20px; font-weight:800; padding:6px 10px 18px; }
+    .sidebar .logo span { color:var(--accent); }
+    .nav { display:flex; flex-direction:column; gap:4px; }
+    .nav button { text-align:left; padding:11px 12px; border-radius:9px; background:transparent; border:none; color:#cbd5e1; font-size:14px; font-weight:600; }
+    .nav button:hover { background:var(--panel); }
+    .nav button.active { background:var(--accent); color:#0f172a; }
+    .sidebar .foot { margin-top:auto; padding-top:16px; border-top:1px solid var(--border); }
+    .sidebar .who { font-size:12px; color:var(--muted); padding:6px 10px; }
+    .logout { width:100%; padding:10px; border-radius:9px; background:transparent; border:1px solid var(--border); color:#cbd5e1; font-weight:600; }
+    .logout:hover { border-color:var(--err); color:var(--err); }
+
+    .content { padding:28px 32px; max-width:980px; }
+    .content h2 { margin:0 0 4px; }
+    .content .hint { color:var(--muted); font-size:13px; margin-bottom:20px; }
+    .search { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px; }
+    .search input { flex:1; min-width:220px; padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel); color:#e2e8f0; font-size:14px; }
+    .search select { padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel); color:#e2e8f0; font-size:14px; }
+    .divider { border:none; border-top:1px solid var(--border); margin:28px 0; }
+    .form { display:flex; gap:8px; flex-wrap:wrap; }
+    .form input { flex:1; min-width:150px; padding:10px 12px; border-radius:9px; border:1px solid var(--border); background:var(--panel2); color:#e2e8f0; font-size:14px; }
+    .search button, .action button { padding:10px 16px; border-radius:9px; border:none; background:var(--accent); color:#0f172a; font-weight:700; font-size:14px; }
+    .status { min-height:20px; font-size:14px; margin:12px 0; }
+    .status.err { color:var(--err); }
+    .status.ok { color:var(--ok); }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:16px; margin-top:16px; }
+    .card h3 { margin:0 0 10px; font-size:15px; color:var(--accent); }
+    .row { display:flex; gap:10px; padding:6px 0; border-bottom:1px solid #2b3a52; font-size:13px; }
+    .row:last-child { border-bottom:none; }
+    .row .k { color:var(--muted); width:150px; flex-shrink:0; }
+    .row .v { word-break:break-all; }
+    .balance { font-size:30px; font-weight:800; color:var(--ok); margin:4px 0 12px; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { text-align:left; padding:8px 6px; border-bottom:1px solid #2b3a52; word-break:break-all; }
+    th { color:var(--muted); font-weight:600; }
+    tr.click { cursor:pointer; }
+    tr.click:hover td { background:var(--panel2); }
+  </style>
+</head>
+<body>
+  <!-- ============ DECORATIVE BACKGROUND (aesthetic only) ============ -->
+  <div id="bgFx" aria-hidden="true">
+    <div class="glow glow1"></div>
+    <div class="glow glow2"></div>
+    <div class="glow glow3"></div>
+    <svg class="net" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice">
+      <!-- blockchain / neural network: connected nodes -->
+      <g stroke="#38bdf8" stroke-width="1.2" fill="none">
+        <line class="flow" x1="150" y1="180" x2="330" y2="120"/>
+        <line class="flow" x1="330" y1="120" x2="500" y2="260"/>
+        <line class="flow" x1="150" y1="180" x2="300" y2="360"/>
+        <line class="flow" x1="300" y1="360" x2="500" y2="260"/>
+        <line class="flow" x1="300" y1="360" x2="130" y2="470"/>
+        <line class="flow" x1="500" y1="260" x2="520" y2="480"/>
+        <line class="flow" x1="130" y1="470" x2="520" y2="480"/>
+        <line class="flow" x1="500" y1="260" x2="700" y2="180"/>
+        <line class="flow" x1="700" y1="180" x2="880" y2="300"/>
+        <line class="flow" x1="880" y1="300" x2="1050" y2="200"/>
+        <line class="flow" x1="880" y1="300" x2="950" y2="510"/>
+        <line class="flow" x1="700" y1="180" x2="760" y2="560"/>
+        <line class="flow" x1="950" y1="510" x2="760" y2="560"/>
+        <line class="flow" x1="950" y1="510" x2="1080" y2="620"/>
+        <line class="flow" x1="1050" y1="200" x2="950" y2="510"/>
+      </g>
+      <g fill="#38bdf8">
+        <circle class="node" cx="150" cy="180" r="5"/>
+        <circle class="node" cx="330" cy="120" r="6" style="animation-delay:.4s"/>
+        <circle class="node" cx="500" cy="260" r="7" style="animation-delay:.8s"/>
+        <circle class="node" cx="300" cy="360" r="5" style="animation-delay:1.2s"/>
+        <circle class="node" cx="130" cy="470" r="6" style="animation-delay:.6s"/>
+        <circle class="node" cx="520" cy="480" r="6" style="animation-delay:1.6s"/>
+        <circle class="node" cx="700" cy="180" r="7" style="animation-delay:.2s"/>
+        <circle class="node" cx="880" cy="300" r="6" style="animation-delay:1s"/>
+        <circle class="node" cx="1050" cy="200" r="5" style="animation-delay:1.4s"/>
+        <circle class="node" cx="950" cy="510" r="7" style="animation-delay:.5s"/>
+        <circle class="node" cx="760" cy="560" r="5" style="animation-delay:1.8s"/>
+        <circle class="node" cx="1080" cy="620" r="6" style="animation-delay:.9s"/>
+      </g>
+      <!-- blockchain "blocks": hexagons -->
+      <g stroke="#34d399" stroke-width="2" fill="none">
+        <polygon class="float" points="220,650 235,624 265,624 280,650 265,676 235,676"/>
+        <polygon class="float" style="animation-delay:1.5s" points="616,700 628,679 652,679 664,700 652,721 628,721"/>
+        <polygon class="float" style="animation-delay:3s" points="954,120 967,98 993,98 1006,120 993,142 967,142"/>
+      </g>
+      <!-- cybersecurity: shield + keyhole -->
+      <g stroke="#a78bfa" stroke-width="2" fill="none" class="float" style="animation-delay:2s">
+        <path d="M600,318 L656,342 L656,398 Q656,446 600,474 Q544,446 544,398 L544,342 Z"/>
+        <circle cx="600" cy="388" r="11"/>
+        <path d="M600,399 L600,418" stroke-width="3"/>
+      </g>
+    </svg>
+  </div>
+
+  <!-- ============ AUTH ============ -->
+  <div id="auth">
+    <div class="auth-card">
+      <div class="brand">Nexis <span>Blockchain</span></div>
+      <div class="auth-sub">Sign in to explore the chain</div>
+      <div class="tabs">
+        <button id="tabLogin" class="active">Log In</button>
+        <button id="tabRegister">Register</button>
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>First Name</label>
+        <input id="authFirst" autocomplete="given-name" />
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Last Name</label>
+        <input id="authLast" autocomplete="family-name" />
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Username</label>
+        <input id="authRegUser" autocomplete="username" placeholder="Your preferred username" />
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Email</label>
+        <input id="authEmail" type="email" autocomplete="email" placeholder="you@example.com" />
+      </div>
+      <div class="field login-only">
+        <label>Username / Email</label>
+        <input id="authUser" autocomplete="username" />
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="authPass" type="password" autocomplete="current-password" />
+        <div id="pwHint" class="pw-hint" style="display:none">At least 8 characters, including uppercase, lowercase, a number, and a special character.</div>
+      </div>
+      <div class="field reg-only" style="display:none">
+        <label>Confirm Password</label>
+        <input id="authConfirm" type="password" autocomplete="new-password" />
+      </div>
+      <button class="submit" id="authSubmit">Log In</button>
+      <div id="authMsg" class="auth-msg"></div>
+    </div>
+  </div>
+
+  <!-- ============ APP ============ -->
+  <div id="app">
+    <div id="idleBanner" class="idle-banner" style="display:none">
+      <span>For your security, you'll be signed out in <b id="idleCountdown">30</b>s due to inactivity.</span>
+      <button id="staySignedIn">Stay signed in</button>
+    </div>
+    <aside class="sidebar">
+      <div class="logo" id="brandHome" title="Go to home">Nexis <span>Blockchain</span></div>
+      <nav class="nav">
+        <button data-view="blockchain" class="active">Blockchain</button>
+        <button data-view="mine">Mine</button>
+        <button data-view="create">New Transaction</button>
+        <button data-view="transaction">Transaction</button>
+        <button data-view="address">Address</button>
+      </nav>
+      <div class="foot">
+        <div class="who" id="who"></div>
+        <button class="logout" id="logout">Log out</button>
+      </div>
+    </aside>
+    <main class="content">
+      <section class="verify">
+        <h2>Verify</h2>
+        <div class="hint">Look up and verify a block hash, transaction ID, or address on this node's chain.</div>
+        <div class="search">
+          <select id="vType">
+            <option value="block">Block hash</option>
+            <option value="transaction">Transaction ID</option>
+            <option value="address">Address</option>
+          </select>
+          <input id="vQuery" placeholder="Paste a block hash, transaction ID, or address…" />
+          <button id="vGo">Search</button>
+        </div>
+        <div id="vStatus" class="status"></div>
+        <div id="vOut"></div>
+      </section>
+      <hr class="divider" />
+      <section id="view"></section>
+    </main>
+  </div>
+
+  <footer class="site-footer">
+    &copy; <span id="footerYear"></span> Nexis Blockchain. All rights reserved.
+  </footer>
+
+  <script>
+    const TOKEN_KEY = 'nexis_token';
+    const USER_KEY  = 'nexis_user';
+    let mode = 'login';
+
+    document.getElementById('footerYear').textContent = new Date().getFullYear();
+
+    /* ---------- helpers ---------- */
+    function token() { return localStorage.getItem(TOKEN_KEY); }
+    async function api(path, opts = {}) {
+      const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
+      const t = token();
+      if (t) headers['Authorization'] = 'Bearer ' + t;
+      const res = await fetch(path, Object.assign({}, opts, { headers }));
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        const msg = (data && data.note) || 'Session expired. Please log in again.';
+        logout(msg);
+        throw new Error(msg);
+      }
+      if (!res.ok) throw new Error(data.note || ('Request failed (' + res.status + ')'));
+      return data;
+    }
+    function row(k, v) { return `<div class="row"><div class="k">${k}</div><div class="v">${v}</div></div>`; }
+
+    /* ---------- auth ---------- */
+    const authMsg = document.getElementById('authMsg');
+    // Mirrors the server-side password policy so users get instant feedback.
+    function passwordError(password) {
+      if (password.length < 8) return 'Password must be at least 8 characters long.';
+      if (!/[A-Z]/.test(password)) return 'Password must contain an uppercase letter.';
+      if (!/[a-z]/.test(password)) return 'Password must contain a lowercase letter.';
+      if (!/[0-9]/.test(password)) return 'Password must contain a number.';
+      if (!/[^A-Za-z0-9]/.test(password)) return 'Password must contain a special character.';
+      return null;
+    }
+    function setAuthMode(m) {
+      mode = m;
+      document.getElementById('tabLogin').classList.toggle('active', m === 'login');
+      document.getElementById('tabRegister').classList.toggle('active', m === 'register');
+      document.getElementById('authSubmit').textContent = m === 'login' ? 'Log In' : 'Register';
+      document.getElementById('pwHint').style.display = m === 'register' ? 'block' : 'none';
+      document.querySelectorAll('.reg-only').forEach(el => el.style.display = m === 'register' ? 'block' : 'none');
+      document.querySelectorAll('.login-only').forEach(el => el.style.display = m === 'login' ? 'block' : 'none');
+      authMsg.textContent = '';
+    }
+    document.getElementById('tabLogin').onclick = () => setAuthMode('login');
+    document.getElementById('tabRegister').onclick = () => setAuthMode('register');
+
+    function setAuthErr(msg) { authMsg.className = 'auth-msg err'; authMsg.textContent = msg; }
+
+    async function submitAuth() {
+      const password = document.getElementById('authPass').value;
+      let body;
+      if (mode === 'register') {
+        const firstName = document.getElementById('authFirst').value.trim();
+        const lastName = document.getElementById('authLast').value.trim();
+        const username = document.getElementById('authRegUser').value.trim();
+        const email = document.getElementById('authEmail').value.trim();
+        const confirm = document.getElementById('authConfirm').value;
+        if (!firstName || !lastName || !username || !email || !password || !confirm) return setAuthErr('All fields are required.');
+        const pwErr = passwordError(password);
+        if (pwErr) return setAuthErr(pwErr);
+        if (password !== confirm) return setAuthErr('Passwords do not match.');
+        body = { firstName, lastName, username, email, password };
+      } else {
+        const username = document.getElementById('authUser').value.trim();
+        if (!username || !password) return setAuthErr('Enter a username/email and password.');
+        body = { username, password };
+      }
+      authMsg.className = 'auth-msg'; authMsg.textContent = 'Please wait…';
+      try {
+        const data = await api('/auth/' + mode, { method: 'POST', body: JSON.stringify(body) });
+        if (mode === 'register') {
+          // Don't auto-login — prompt to verify the email, but username login works regardless.
+          setAuthMode('login');
+          document.getElementById('authUser').value = data.username;
+          document.getElementById('authPass').value = '';
+          authMsg.className = 'auth-msg ok';
+          authMsg.innerHTML = `Account created. A verification link was sent to <b>${data.email}</b>.` +
+            (data.verificationLink ? `<br><span class="pw-hint">Dev mode — <a href="${data.verificationLink}" target="_blank" style="color:var(--accent)">open verification link</a></span>` : '') +
+            `<br>Didn't get it? Sign in with your <b>username</b>.`;
+          return;
+        }
+        localStorage.setItem(TOKEN_KEY, data.token);
+        localStorage.setItem(USER_KEY, data.username);
+        showApp();
+      } catch (e) {
+        setAuthErr(e.message);
+      }
+    }
+    document.getElementById('authSubmit').onclick = submitAuth;
+    document.getElementById('authPass').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+
+    function logout(message) {
+      const t = token();
+      stopIdleTimer();
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      // Best-effort server-side invalidation (raw fetch so a 401 here can't recurse into logout).
+      if (t) fetch('/auth/logout', { method: 'POST', headers: { 'Authorization': 'Bearer ' + t } }).catch(() => {});
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('auth').style.display = 'flex';
+      if (message) { authMsg.className = 'auth-msg err'; authMsg.textContent = message; }
+    }
+    document.getElementById('logout').onclick = () => logout();
+
+    /* ---------- inactivity auto-logout (5 minutes) with warning banner ---------- */
+    const IDLE_LIMIT_MS = 5 * 60 * 1000;
+    const WARNING_LEAD_MS = 30 * 1000;   // show the banner 30s before logout
+    const PING_THROTTLE_MS = 60 * 1000;  // keep the server session warm at most once/min
+    let idleTimer = null, warnTimer = null, countdownInterval = null, lastPing = 0;
+
+    function hideIdleBanner() {
+      document.getElementById('idleBanner').style.display = 'none';
+      if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    }
+    function stopIdleTimer() {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (warnTimer) { clearTimeout(warnTimer); warnTimer = null; }
+      hideIdleBanner();
+    }
+    function showIdleWarning() {
+      const banner = document.getElementById('idleBanner');
+      const label = document.getElementById('idleCountdown');
+      let remaining = Math.round(WARNING_LEAD_MS / 1000);
+      label.textContent = remaining;
+      banner.style.display = 'flex';
+      countdownInterval = setInterval(() => {
+        remaining -= 1;
+        label.textContent = Math.max(0, remaining);
+        if (remaining <= 0) { clearInterval(countdownInterval); countdownInterval = null; }
+      }, 1000);
+    }
+    function resetIdleTimer() {
+      if (!token()) return; // only while signed in
+      stopIdleTimer();
+      warnTimer = setTimeout(showIdleWarning, IDLE_LIMIT_MS - WARNING_LEAD_MS);
+      idleTimer = setTimeout(() => logout('You were logged out after 5 minutes of inactivity.'), IDLE_LIMIT_MS);
+      // Throttled keepalive so the server's sliding window stays aligned with the client.
+      if (Date.now() - lastPing > PING_THROTTLE_MS) {
+        lastPing = Date.now();
+        api('/auth/ping').catch(() => {});
+      }
+    }
+    ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click'].forEach(ev =>
+      document.addEventListener(ev, resetIdleTimer, { passive: true }));
+    document.getElementById('staySignedIn').onclick = () => {
+      lastPing = Date.now();
+      api('/auth/ping').catch(() => {});
+      resetIdleTimer();
+    };
+
+    /* ---------- app shell ---------- */
+    function showApp() {
+      document.getElementById('auth').style.display = 'none';
+      document.getElementById('app').style.display = 'grid';
+      document.getElementById('who').textContent = 'Signed in as ' + (localStorage.getItem(USER_KEY) || '');
+      selectView('blockchain');
+      resetIdleTimer();
+    }
+
+    /* ---------- persistent verify panel ---------- */
+    const vType = document.getElementById('vType');
+    const vQuery = document.getElementById('vQuery');
+    const vStatus = document.getElementById('vStatus');
+    const vOut = document.getElementById('vOut');
+    function vSet(msg, kind) { vStatus.textContent = msg || ''; vStatus.className = 'status' + (kind ? ' ' + kind : ''); }
+    async function verify() {
+      const type = vType.value;
+      const q = vQuery.value.trim();
+      vOut.innerHTML = '';
+      if (!q) { vSet('Enter a value to search.', 'err'); return; }
+      vSet('Searching…');
+      try {
+        if (type === 'block') {
+          const data = await api('/block/' + encodeURIComponent(q));
+          if (!data.block) return vSet('No block found with that hash.', 'err');
+          vSet('Block found.', 'ok'); vOut.innerHTML = blockCard(data.block);
+        } else if (type === 'transaction') {
+          const data = await api('/transaction/' + encodeURIComponent(q));
+          if (!data.transaction) return vSet('No transaction found with that ID.', 'err');
+          vSet('Transaction found.', 'ok'); vOut.innerHTML = txCard(data.transaction, data.block);
+        } else {
+          const data = await api('/address/' + encodeURIComponent(q));
+          const ad = data.addressData;
+          if (!ad || ad.addressTransactions.length === 0) return vSet('No activity for that address.', 'err');
+          vSet('Address found.', 'ok'); vOut.innerHTML = addressCard(q, ad);
+        }
+      } catch (e) { vSet(e.message, 'err'); }
+    }
+    document.getElementById('vGo').onclick = verify;
+    vQuery.addEventListener('keydown', e => { if (e.key === 'Enter') verify(); });
+    document.querySelectorAll('.nav button').forEach(btn => {
+      btn.onclick = () => selectView(btn.dataset.view);
+    });
+    document.getElementById('brandHome').onclick = () => selectView('blockchain');
+    function selectView(view) {
+      document.querySelectorAll('.nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+      views[view]();
+    }
+
+    const view = document.getElementById('view');
+
+    /* ---------- views ---------- */
+    const views = {
+      async blockchain() {
+        view.innerHTML = `<h2>Blockchain</h2><div class="hint">This node's full chain. Click a block to inspect it.</div><div class="status">Loading…</div><div id="out"></div>`;
+        try {
+          const chain = await api('/blockchain');
+          view.querySelector('.status').textContent = `${chain.chain.length} blocks · ${chain.networkNodes.length} peers · ${chain.pendingTransactions.length} pending tx`;
+          view.querySelector('.status').className = 'status ok';
+          const rows = chain.chain.map(b => `<tr class="click" data-hash="${b.hash}">
+            <td>${b.index}</td><td><code>${b.hash}</code></td><td>${b.transactions.length}</td>
+            <td>${new Date(b.timestamp).toLocaleString()}</td></tr>`).join('');
+          view.querySelector('#out').innerHTML = `<div class="card"><table>
+            <thead><tr><th>#</th><th>Hash</th><th>Txs</th><th>Mined</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+          view.querySelectorAll('tr.click').forEach(tr => tr.onclick = () => showBlock(tr.dataset.hash));
+        } catch (e) { fail(e); }
+      },
+
+      async mine() {
+        view.innerHTML = `<h2>Mine</h2><div class="hint">Run proof-of-work over pending transactions and broadcast the new block, or browse every mined block below.</div>
+          <div class="action"><button id="mineBtn">Mine a block</button></div><div class="status"></div><div id="out"></div>
+          <hr class="divider" />
+          <h3 style="margin:0 0 4px">All blocks</h3>
+          <div class="hint" id="blockCount">Loading…</div>
+          <div id="allBlocks"></div>`;
+        const loadBlocks = async () => {
+          try {
+            const chain = await api('/blockchain');
+            document.getElementById('blockCount').textContent = `${chain.chain.length} block(s) mined`;
+            const body = chain.chain.map(b => `<tr class="click" data-hash="${b.hash}">
+              <td>${b.index}</td>
+              <td>${new Date(b.timestamp).toLocaleString()}</td>
+              <td>${b.transactions.length}</td>
+              <td>${b.nonce}</td>
+              <td><code>${b.hash}</code></td>
+              <td><code>${b.previousBlockHash}</code></td>
+            </tr>`).join('');
+            document.getElementById('allBlocks').innerHTML = `<div class="card"><table>
+              <thead><tr><th>#</th><th>Mined</th><th>Txs</th><th>Nonce</th><th>Hash</th><th>Previous hash</th></tr></thead>
+              <tbody>${body}</tbody></table></div>`;
+            document.querySelectorAll('#allBlocks tr.click').forEach(tr => tr.onclick = () => showBlock(tr.dataset.hash));
+          } catch (e) { document.getElementById('blockCount').textContent = e.message; }
+        };
+        document.getElementById('mineBtn').onclick = async () => {
+          const s = view.querySelector('.status'); s.className = 'status'; s.textContent = 'Mining… (searching for a 0000 hash)';
+          try {
+            const data = await api('/mine');
+            s.className = 'status ok'; s.textContent = data.note;
+            view.querySelector('#out').innerHTML = blockCard(data.block);
+            loadBlocks();
+          } catch (e) { fail(e); }
+        };
+        loadBlocks();
+      },
+
+      async create() {
+        view.innerHTML = `<h2>New Transaction</h2><div class="hint">Send to a registered user only. The transaction joins the pending pool and is included in the next mined block.</div>
+          <div class="card"><h3>Create transaction</h3>
+            <div class="form">
+              <input id="txAmount" type="number" min="0" step="any" placeholder="Amount" />
+              <input id="txSender" placeholder="Sender" list="userList" />
+              <input id="txRecipient" placeholder="Recipient" list="userList" />
+              <datalist id="userList"></datalist>
+            </div>
+            <div class="action" style="margin-top:12px"><button id="txCreate">Create &amp; broadcast</button></div>
+          </div>
+          <div class="status"></div><div id="out"></div>`;
+        // Prefill sender with the signed-in user and offer registered users as options.
+        document.getElementById('txSender').value = localStorage.getItem(USER_KEY) || '';
+        try {
+          const { users } = await api('/users');
+          document.getElementById('userList').innerHTML = (users || []).map(u => `<option value="${u}"></option>`).join('');
+        } catch (e) { /* non-fatal: the form still works, the server validates */ }
+
+        document.getElementById('txCreate').onclick = async () => {
+          const amount = parseFloat(document.getElementById('txAmount').value);
+          const sender = document.getElementById('txSender').value.trim();
+          const recipient = document.getElementById('txRecipient').value.trim();
+          if (!(amount > 0) || !sender || !recipient) { notFound('Enter a positive amount, a sender, and a recipient.'); return; }
+          status().className = 'status'; status().textContent = 'Broadcasting…';
+          try {
+            const data = await api('/transaction/broadcast', { method: 'POST', body: JSON.stringify({ amount, sender, recipient }) });
+            ok(data.note);
+            view.querySelector('#out').innerHTML = data.transaction ? txCard(data.transaction, null) : '';
+            document.getElementById('txAmount').value = '';
+            document.getElementById('txRecipient').value = '';
+          } catch (e) { fail(e); }
+        };
+      },
+
+      async transaction() {
+        view.innerHTML = `<h2>Transaction</h2><div class="hint">Look up a transaction by its ID, or browse every transaction on the chain below.</div>
+          <div class="search"><input id="q" placeholder="Transaction ID" /><button id="go">Search</button></div>
+          <div class="status"></div><div id="out"></div>
+          <hr class="divider" />
+          <h3 style="margin:0 0 4px">All transactions</h3>
+          <div class="hint" id="txCount">Loading…</div>
+          <div id="allTx"></div>`;
+        wireSearch(async q => {
+          const data = await api('/transaction/' + encodeURIComponent(q));
+          if (!data.transaction) return notFound('No transaction with that ID.');
+          ok('Transaction found.');
+          view.querySelector('#out').innerHTML = txCard(data.transaction, data.block);
+        });
+
+        // Build a ledger of every transaction across all blocks (plus pending).
+        try {
+          const chain = await api('/blockchain');
+          const rows = [];
+          chain.chain.forEach(b => b.transactions.forEach(t => rows.push({ block: b.index, time: b.timestamp, t })));
+          chain.pendingTransactions.forEach(t => rows.push({ block: null, time: null, t }));
+          const pendingCount = chain.pendingTransactions.length;
+          document.getElementById('txCount').textContent =
+            `${rows.length} transaction(s) across ${chain.chain.length} block(s)` + (pendingCount ? `, ${pendingCount} pending` : '');
+          if (!rows.length) { document.getElementById('allTx').innerHTML = `<div class="card">No transactions recorded yet.</div>`; return; }
+          const body = rows.map(r => `<tr>
+            <td>${r.block === null ? '<em>pending</em>' : '#' + r.block}</td>
+            <td>${r.time ? new Date(r.time).toLocaleString() : '—'}</td>
+            <td>${r.t.amount}</td>
+            <td><code>${r.t.sender}</code></td>
+            <td><code>${r.t.recipient}</code></td>
+            <td><code>${r.t.transactionId || '—'}</code></td>
+          </tr>`).join('');
+          document.getElementById('allTx').innerHTML = `<div class="card"><table>
+            <thead><tr><th>Block</th><th>Time</th><th>Amount</th><th>Sender</th><th>Recipient</th><th>Tx ID</th></tr></thead>
+            <tbody>${body}</tbody></table></div>`;
+        } catch (e) {
+          document.getElementById('txCount').textContent = e.message;
+        }
+      },
+
+      address() {
+        view.innerHTML = `<h2>Address</h2><div class="hint">View an address's balance and transaction history.</div>
+          <div class="search"><input id="q" placeholder="Address (e.g. ALICE)" /><button id="go">Search</button></div>
+          <div class="status"></div><div id="out"></div>`;
+        wireSearch(async q => {
+          const data = await api('/address/' + encodeURIComponent(q));
+          const ad = data.addressData;
+          if (!ad || ad.addressTransactions.length === 0) return notFound('No activity for that address.');
+          ok('Address found.');
+          view.querySelector('#out').innerHTML = addressCard(q, ad);
+        });
+      }
+    };
+
+    /* ---------- shared render ---------- */
+    function status() { return view.querySelector('.status'); }
+    function ok(m) { const s = status(); s.className = 'status ok'; s.textContent = m; }
+    function notFound(m) { const s = status(); s.className = 'status err'; s.textContent = m; view.querySelector('#out').innerHTML = ''; }
+    function fail(e) { const s = status(); if (s) { s.className = 'status err'; s.textContent = e.message; } }
+
+    function wireSearch(handler) {
+      const input = view.querySelector('#q');
+      const run = async () => {
+        const q = input.value.trim();
+        if (!q) { notFound('Enter a value to search.'); return; }
+        status().className = 'status'; status().textContent = 'Searching…';
+        try { await handler(q); } catch (e) { fail(e); }
+      };
+      view.querySelector('#go').onclick = run;
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+    }
+
+    async function showBlock(hash) {
+      try {
+        const data = await api('/block/' + encodeURIComponent(hash));
+        if (!data.block) return;
+        const out = view.querySelector('#out');
+        out.insertAdjacentHTML('afterbegin', blockCard(data.block));
+        out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (e) { fail(e); }
+    }
+
+    function blockCard(block) {
+      const txs = block.transactions.map(t =>
+        `<tr><td><code>${t.transactionId}</code></td><td>${t.amount}</td><td><code>${t.sender}</code></td><td><code>${t.recipient}</code></td></tr>`).join('');
+      return `<div class="card"><h3>Block #${block.index}</h3>
+        ${row('Hash', `<code>${block.hash}</code>`)}
+        ${row('Previous hash', `<code>${block.previousBlockHash}</code>`)}
+        ${row('Nonce', block.nonce)}
+        ${row('Mined', new Date(block.timestamp).toLocaleString())}
+        ${row('Transactions', block.transactions.length)}
+        ${block.transactions.length ? `<table style="margin-top:10px"><thead><tr><th>Tx ID</th><th>Amount</th><th>Sender</th><th>Recipient</th></tr></thead><tbody>${txs}</tbody></table>` : ''}
+      </div>`;
+    }
+    function txCard(t, block) {
+      return `<div class="card"><h3>Transaction</h3>
+        ${row('Transaction ID', `<code>${t.transactionId}</code>`)}
+        ${row('Amount', t.amount)}
+        ${row('Sender', `<code>${t.sender}</code>`)}
+        ${row('Recipient', `<code>${t.recipient}</code>`)}
+        ${block ? row('In block', `#${block.index}`) : ''}
+      </div>`;
+    }
+    function addressCard(address, data) {
+      const rows = data.addressTransactions.map(t => `<tr>
+        <td><code>${t.transactionId}</code></td><td>${t.amount}</td><td><code>${t.sender}</code></td><td><code>${t.recipient}</code></td></tr>`).join('');
+      return `<div class="card"><h3>Address ${address}</h3>
+        <div class="balance">${data.addressBalance}</div>
+        <table><thead><tr><th>Tx ID</th><th>Amount</th><th>Sender</th><th>Recipient</th></tr></thead>
+        <tbody>${rows}</tbody></table></div>`;
+    }
+
+    /* ---------- boot ---------- */
+    setAuthMode('login');
+    if (token()) showApp();
+  </script>
+</body>
+</html>
